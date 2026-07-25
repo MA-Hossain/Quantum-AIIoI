@@ -1,0 +1,72 @@
+============================================================
+STEP 2: AoII RENEWAL COMPUTATION
+============================================================
+
+--- Test A: 2-State Markov Chain ---
+  P = [[0.8, 0.2], [0.3, 0.7]]
+  F = [[0.0, 1.0], [1.0, 0.0]]
+  pi = [0.600000, 0.400000]
+  [PASS] pi[0]: got=0.6000000000, expected=0.6000000000
+  [PASS] pi[1]: got=0.4000000000, expected=0.4000000000
+  [PASS] pi@P[0]: got=0.6000000000, expected=0.6000000000
+  [PASS] pi@P[1]: got=0.4000000000, expected=0.4000000000
+  [PASS] psi(Y=1): got=0.2400000000, expected=0.2400000000
+  [PASS] psi(Y=2): got=0.6000000000, expected=0.6000000000
+  [PASS] psi(Y=3): got=1.0200000000, expected=1.0200000000
+
+  Precomputed Psi table (Y=0..10):
+    Y= 0: Psi=0.000000  (direct=0.000000, match=True)
+    Y= 1: Psi=0.240000  (direct=0.240000, match=True)
+    Y= 2: Psi=0.600000  (direct=0.600000, match=True)
+    Y= 3: Psi=1.020000  (direct=1.020000, match=True)
+    Y= 4: Psi=1.470000  (direct=1.470000, match=True)
+    Y= 5: Psi=1.935000  (direct=1.935000, match=True)
+    Y= 6: Psi=2.407500  (direct=2.407500, match=True)
+    Y= 7: Psi=2.883750  (direct=2.883750, match=True)
+    Y= 8: Psi=3.361875  (direct=3.361875, match=True)
+    Y= 9: Psi=3.840937  (direct=3.840937, match=True)
+    Y=10: Psi=4.320469  (direct=4.320469, match=True)
+
+--- Test B: 4-State Markov Chain ---
+  P = [[0.7, 0.2, 0.05, 0.05], [0.1, 0.6, 0.2, 0.1], [0.05, 0.15, 0.6, 0.2], [0.05, 0.1, 0.15, 0.7]]
+  F (distortion |i-j|):
+    [[0.0, 1.0, 2.0, 3.0], [1.0, 0.0, 1.0, 2.0], [2.0, 1.0, 0.0, 1.0], [3.0, 2.0, 1.0, 0.0]]
+  pi = [0.180350, 0.262450, 0.263795, 0.293405]
+  [PASS] pi@P[0]: got=0.1803499327, expected=0.1803499327
+  [PASS] pi@P[1]: got=0.2624495289, expected=0.2624495289
+  [PASS] pi@P[2]: got=0.2637954240, expected=0.2637954240
+  [PASS] pi@P[3]: got=0.2934051144, expected=0.2934051144
+  [PASS] sum(pi): got=1.0000000000, expected=1.0000000000
+
+  Precomputed Psi table (Y=0..20):
+    Y= 0: Psi=0.000000
+    Y= 1: Psi=0.477793
+    Y= 2: Psi=1.232046
+    Y= 3: Psi=2.151691
+    Y= 4: Psi=3.173026
+    Y= 5: Psi=4.258254
+    Y= 6: Psi=5.384306
+    Y= 7: Psi=6.536778
+    Y= 8: Psi=7.706516
+    Y= 9: Psi=8.887620
+    Y=10: Psi=10.076247
+    Y=11: Psi=11.269876
+    Y=12: Psi=12.466840
+    Y=13: Psi=13.666034
+    Y=14: Psi=14.866720
+    Y=15: Psi=16.068408
+    Y=16: Psi=17.270768
+    Y=17: Psi=18.473580
+    Y=18: Psi=19.676695
+    Y=19: Psi=20.880015
+    Y=20: Psi=22.083473
+
+  [PASS] Monotonicity check: Psi(Y) <= Psi(Y+1)
+  [PASS] Psi(0): got=0.0000000000, expected=0.0000000000
+
+--- Test C: Auto-distortion (f=None) ---
+  [PASS] precompute_psi(f=None) matches precompute_psi(f=|i-j|)
+
+============================================================
+STEP 2 RESULT: ALL TESTS PASSED
+============================================================
