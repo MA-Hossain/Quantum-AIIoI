@@ -1,0 +1,75 @@
+============================================================
+STEP 3: VANGUARD QUBO CONSTRUCTION
+============================================================
+
+--- Test A: 2-UE / 2-Node Brute-Force ---
+  Variables: 19
+  Q shape: (19, 19)
+  [PASS] Q is square
+  [PASS] Q dimension matches num_vars
+  Breakdown: 4 assoc, 5 epigraph, 4 cap_slack, 6 aoii_slack
+  Brute-forcing 524288 solutions ...
+  Global min energy: -93.7000
+    association: {0: 0, 1: 1}
+    eta_level: 1, eta: 0.30
+    single_assoc: True, capacity_ok: True
+  [PASS] Global optimum is feasible
+  [PASS] Optimal assigns UE0->Node0  (got {0: 0, 1: 1})
+  [PASS] Optimal assigns UE1->Node1  (got {0: 0, 1: 1})
+  Best feasible energy: -93.7000
+    association: {0: 0, 1: 1}, eta: 0.30
+  [PASS] Global optimum equals best feasible
+
+  AoII cost matrix (continuous):
+    [[0.24 0.6 ]
+ [0.6  0.24]]
+
+--- Test B: 5-UE / 2-BS / 2-SAT Toy Instance ---
+  Variables: 51
+  Q shape: (51, 51)
+  Breakdown: 20 assoc, 8 epigraph, 8 cap_slack, 15 aoii_slack
+  [PASS] Q_B is square
+  [PASS] Q_B dim matches
+  Worst-case AoII cost matrix:
+    UE0: [0.2400, 1.0200, 5.2801, 4.3205]
+    UE1: [1.0200, 0.2400, 6.2400, 2.8838]
+    UE2: [1.9350, 1.4700, 1.4700, 1.9350]
+    UE3: [1.4700, 1.9350, 4.3205, 0.6000]
+    UE4: [0.6000, 0.6000, 3.8409, 2.8838]
+
+  Good solution energy: -266.5000
+    association: {0: 0, 1: 1, 2: 2, 3: 3, 4: 0}
+    eta: 1.50, single_assoc: True, capacity_ok: True
+  [PASS] Good solution is feasible (single_assoc)
+  [PASS] Good solution is feasible (capacity)
+
+  Double-assoc solution energy: -194.5000
+    single_assoc: False
+  [PASS] Double-association has higher energy  (bad=-194.5000 vs good=-266.5000)
+  [PASS] Double-association detected as infeasible
+
+  Over-capacity solution energy: 81.5000
+    capacity_ok: False
+  [PASS] Over-capacity has higher energy  (overcap=81.5000 vs good=-266.5000)
+  [PASS] Over-capacity detected as infeasible
+
+--- Test C: Constraint Violations ---
+  Zero-vector energy: 0.0000
+  [PASS] Zero vector has higher energy than feasible  (zero=0.0000 vs good=-266.5000)
+  [PASS] Zero vector: no single_assoc
+
+--- Test D: AoII Renewal Integration ---
+  AoII cost (4-state chain):
+    UE0: [0.4778, 2.1517, 12.4668, 10.0762]
+    UE1: [2.1517, 0.4778, 14.8667, 6.5368]
+    UE2: [4.2583, 3.1730, 3.1730, 4.2583]
+    UE3: [3.1730, 4.2583, 10.0762, 1.2320]
+    UE4: [1.2320, 1.2320, 8.8876, 6.5368]
+  [PASS] AoII costs are non-negative
+  [PASS] AoII costs > 0 for positive rates  (all links have positive Psi)
+  [PASS] 4-state QUBO builds successfully
+  4-state QUBO: 51 variables, Q shape (51, 51)
+
+============================================================
+STEP 3 RESULT: ALL TESTS PASSED
+============================================================
