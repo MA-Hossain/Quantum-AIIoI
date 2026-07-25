@@ -1,1 +1,54 @@
+# Draft / scratch work
 draft/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+pip-log.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Qiskit / quantum
+*.qasm
+*.qpy
+
+# D-Wave
+*.bin
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Matplotlib output (keep output/ tracked but ignore temp plots)
+*.png.tmp
+
+# Logs
+*.log
+
+# Compressed archives
+*.zip
+*.tar.gz

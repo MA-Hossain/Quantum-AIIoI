@@ -1,0 +1,52 @@
+============================================================
+STEP 1: CONFIG PACKAGE + IMPORT SMOKE TEST
+============================================================
+
+--- Part A: Module Imports ---
+  [PASS] sagin_research_sim.config.radio_config -> RadioConfig, ResourceGridConfig, ChannelModelConfig, BandwidthMode, DisruptionScenario
+  [PASS] sagin_research_sim.config.topology_config -> TopologyConfig, NetworkMode
+  [PASS] sagin_research_sim.config.simulation_config -> SimulationConfig
+  [PASS] sagin_research_sim.config.compute_config -> EdgeComputeConfig
+  [PASS] sagin_research_sim.channels.fading -> fading_gain_db
+  [PASS] sagin_research_sim.channels.interference -> dbm_to_watt, watt_to_dbm, aggregate_interference_watt
+  [PASS] sagin_research_sim.channels.pathloss -> distance_3d_m, elevation_angle_deg, fspl_db, path_loss_db
+  [PASS] sagin_research_sim.channels.rate -> compute_link_rate, compute_all_rates, LinkRateResult
+  [PASS] sagin_research_sim.nodes.base -> NetworkNode, NodeType, Position
+  [PASS] sagin_research_sim.nodes.ue -> UserEquipment
+  [PASS] sagin_research_sim.nodes.bs -> BaseStation
+  [PASS] sagin_research_sim.nodes.satellite -> Satellite
+  [PASS] sagin_research_sim.nodes.uav -> UAV
+  [PASS] sagin_research_sim.nodes.topology -> Topology, generate_topology
+  [PASS] sagin_research_sim.radio.bs_radio -> make_bs_radio
+  [PASS] sagin_research_sim.radio.satellite_radio -> make_satellite_radio
+  [PASS] sagin_research_sim.radio.wifi_radio -> make_wifi_radio
+  [PASS] sagin_research_sim.radio.mmwave_radio -> make_mmwave_radio
+  [PASS] sagin_research_sim.schedulers.resource_blocks -> ResourceBlock, ResourceGrid, rb_bandwidth_hz, allocation_bandwidth_hz
+  [PASS] sagin_research_sim.schedulers.access_policies -> SchedulingDecision, random_access_equal_share
+
+Import result: ALL PASSED
+
+--- Part B: Config Class Defaults ---
+  ResourceGridConfig: 100 freq x 10 time, SCS=15.0kHz, rb_bw=180.0kHz
+  RadioConfig: default, 3.5GHz, 20MHz, 23.0dBm
+  ChannelModelConfig: mode=resource_block, fading=True, scenarios=1
+  TopologyConfig: mode=sagin, BS=2, SAT=2, UAV=0, area=1000.0x1000.0m
+  SimulationConfig: seed=42, num_ues=5
+  EdgeComputeConfig: BS=10G, SAT=2G, UAV=5G cycles/s
+
+--- Part C: End-to-End Test ---
+  Topology: 5 UEs, 2 BS, 1 SAT, 0 UAV
+    BS0: pos=(219, 505, 25)m, radio=sub6_bs, freq=3.5GHz
+    BS1: pos=(27, 199, 25)m, radio=sub6_bs, freq=3.5GHz
+    SAT0: pos=(650, 545, 550000)m, radio=ku_leo_satellite, freq=12.0GHz
+  Scheduling: 5 associations, policy=random_access_equal_share
+  Link rates:
+    UE0 -> BS1: 27.00 Mbps (dist=638m, SNR=19.0dB, visible=True)
+    UE1 -> BS1: 27.00 Mbps (dist=251m, SNR=27.1dB, visible=True)
+    UE2 -> SAT0: 0.00 Mbps (dist=550000m, SNR=-61.4dB, visible=True)
+    UE3 -> BS1: 24.54 Mbps (dist=873m, SNR=16.3dB, visible=True)
+    UE4 -> BS1: 27.00 Mbps (dist=431m, SNR=22.5dB, visible=True)
+
+============================================================
+STEP 1 COMPLETE
+============================================================
