@@ -1,0 +1,67 @@
+============================================================
+STEP 5: QAOA SOLVER
+============================================================
+  QUBO: 16 variables (qubits), Q shape (16, 16)
+
+--- Test A: QUBO -> Ising Conversion ---
+  Ising: 16 spins, 54 couplings, offset=40.9000
+  Max |QUBO - Ising| over 1000 random x: 5.68e-14
+  [PASS] Ising conversion correct
+
+--- Test B: QAOA p=1 ---
+  Energy:      -93.4000
+  Opt energy:  14.8212
+  Association: {0: 0, 1: 0}
+  eta:         0.60
+  Feasible:    single_assoc=True, capacity_ok=True
+  COBYLA evals: 29
+  Time:        7.0s
+  [PASS] QAOA p=1: returns a solution
+  [PASS] QAOA p=1: energy is finite
+
+--- Exact Reference ---
+  Exact energy:      -93.7000
+  Exact association: {0: 0, 1: 1}
+  Time:              0.259s
+
+--- SA Reference ---
+  SA energy:      -93.7000
+  SA association: {0: 0, 1: 1}
+  SA backend:     neal
+  Time:           0.076s
+
+--- Test C: QAOA Depth Sweep p=1,2,3 ---
+
+  Running QAOA p=2 ...
+    Energy:      -93.4000
+    Opt energy:  27.3176
+    Association: {0: 1, 1: 0}
+    Feasible:    single_assoc=True, capacity_ok=True
+    COBYLA evals: 40
+    Time:        7.8s
+
+  Running QAOA p=3 ...
+    Energy:      -93.4000
+    Opt energy:  29.8027
+    Association: {0: 1, 1: 0}
+    Feasible:    single_assoc=True, capacity_ok=True
+    COBYLA evals: 59
+    Time:        11.9s
+
+  Approximation ratios (energy / exact, closer to 1.0 = better):
+    QAOA p=1: energy=-93.4000, ratio=0.9968
+    QAOA p=2: energy=-93.4000, ratio=0.9968
+    QAOA p=3: energy=-93.4000, ratio=0.9968
+    SA:          energy=-93.7000, ratio=1.0000
+    Exact:       energy=-93.7000, ratio=1.0000
+  [PASS] Best QAOA achieves ratio >= 0.5  (ratio=0.9968)
+  [PASS] Best QAOA energy <= 0 (negative = feasible regime)  (energy=-93.4000)
+  [PASS] QAOA p=3 energy <= QAOA p=1 energy + tolerance  (p1=-93.4000, p3=-93.4000)
+
+--- Test D: Comparison Figure ---
+  Figure saved to: /Users/teamjaaf/USA/Research/Quantum_Sagin/tele/tests/../output/step5_qaoa_comparison.png
+  [PASS] Figure file created
+
+============================================================
+STEP 5 RESULT: ALL TESTS PASSED
+============================================================
