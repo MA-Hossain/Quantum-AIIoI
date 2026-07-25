@@ -1,0 +1,141 @@
+============================================================
+STEP 7: EXPERIMENTS
+============================================================
+
+--- Test A: Single Instance (5 UEs) ---
+  Instance: 5 UEs, 4 nodes, 51 QUBO vars
+  Capacity: [3, 3, 3, 3]
+  Solvers run: ['random', 'greedy', 'sa', 'admm']
+  [PASS] All 4 solvers ran
+
+  random:
+    worst_aoii=22.2623, avg_aoii=9.2182
+    sum_rate=265075418 bps, avg_latency=8.60
+    delivery_ratio=0.60, fresh_ratio=0.60
+    capacity_ok=True, timing=0.003s
+    association={4: 1, 2: 3, 3: 0, 1: 2, 0: 0}
+  [PASS] random: has valid worst_aoii
+  [PASS] random: has valid avg_aoii
+  [PASS] random: delivery_ratio in [0,1]
+  [PASS] random: fresh_ratio in [0,1]
+  [PASS] random: all UEs assigned
+
+  greedy:
+    worst_aoii=0.5222, avg_aoii=0.5222
+    sum_rate=478812245 bps, avg_latency=1.00
+    delivery_ratio=1.00, fresh_ratio=1.00
+    capacity_ok=True, timing=0.000s
+    association={0: 1, 1: 0, 2: 0, 3: 0, 4: 1}
+  [PASS] greedy: has valid worst_aoii
+  [PASS] greedy: has valid avg_aoii
+  [PASS] greedy: delivery_ratio in [0,1]
+  [PASS] greedy: fresh_ratio in [0,1]
+  [PASS] greedy: all UEs assigned
+
+  sa:
+    worst_aoii=0.5222, avg_aoii=0.5222
+    sum_rate=454452296 bps, avg_latency=1.00
+    delivery_ratio=1.00, fresh_ratio=1.00
+    capacity_ok=True, timing=0.036s
+    QUBO energy=-340.2000
+    association={0: 1, 1: 0, 2: 1, 3: 0, 4: 1}
+  [PASS] sa: has valid worst_aoii
+  [PASS] sa: has valid avg_aoii
+  [PASS] sa: delivery_ratio in [0,1]
+  [PASS] sa: fresh_ratio in [0,1]
+  [PASS] sa: all UEs assigned
+
+  admm:
+    worst_aoii=22.2623, avg_aoii=9.2182
+    sum_rate=254767098 bps, avg_latency=8.60
+    delivery_ratio=0.60, fresh_ratio=0.60
+    capacity_ok=True, timing=0.287s
+    QUBO energy=-345.9000
+    association={0: 0, 1: 3, 2: 2, 3: 0, 4: 0}
+  [PASS] admm: has valid worst_aoii
+  [PASS] admm: has valid avg_aoii
+  [PASS] admm: delivery_ratio in [0,1]
+  [PASS] admm: fresh_ratio in [0,1]
+  [PASS] admm: all UEs assigned
+
+--- Test B: Experiment Sweep [5,8] x 2 seeds ---
+  Total instances: 4
+  [PASS] Sweep produced 4 results
+  UE counts: [5, 8]
+  [PASS] Both UE counts present
+  [PASS] 5UE/seed0/random: feasible  (assoc={2: 0, 4: 0, 3: 0, 0: 3, 1: 2})
+  [PASS] 5UE/seed0/greedy: feasible  (assoc={0: 0, 1: 1, 2: 0, 3: 0, 4: 1})
+  [PASS] 5UE/seed0/sa: feasible  (assoc={0: 0, 1: 0, 2: 1, 3: 1, 4: 1})
+  [PASS] 5UE/seed0/admm: feasible=True
+  [PASS] 5UE/seed1/random: feasible  (assoc={4: 3, 0: 3, 1: 0, 2: 1, 3: 3})
+  [PASS] 5UE/seed1/greedy: feasible  (assoc={0: 0, 1: 0, 2: 0, 3: 1, 4: 1})
+  [PASS] 5UE/seed1/sa: feasible  (assoc={0: 2, 1: 1, 2: 3, 3: 0, 4: 0})
+  [PASS] 5UE/seed1/admm: feasible=True
+  [PASS] 8UE/seed0/random: feasible  (assoc={2: 0, 4: 3, 3: 2, 6: 3, 5: 2, 0: 2, 1: 3, 7: 1})
+  [PASS] 8UE/seed0/greedy: feasible  (assoc={0: 0, 1: 1, 2: 1, 3: 1, 4: 0, 5: 0, 6: 2, 7: 3})
+  [PASS] 8UE/seed0/sa: feasible  (assoc={0: 0, 1: 1, 2: 1, 3: 1, 4: 3, 5: 0, 6: 3, 7: 2})
+  [PASS] 8UE/seed0/admm: feasible=True
+  [PASS] 8UE/seed1/random: feasible  (assoc={5: 3, 0: 1, 1: 1, 4: 3, 2: 1, 6: 2, 3: 2, 7: 2})
+  [PASS] 8UE/seed1/greedy: feasible  (assoc={0: 0, 1: 1, 2: 0, 3: 0, 4: 1, 5: 1, 6: 3, 7: 2})
+  [PASS] 8UE/seed1/sa: feasible  (assoc={0: 0, 1: 1, 2: 0, 3: 2, 4: 3, 5: 1, 6: 3, 7: 0})
+  [WARN] 8UE/seed1/admm: feasible=False
+
+--- Test C: Metrics Sanity ---
+  [PASS] 5UE/sa: worst >= avg  (worst=0.5222, avg=0.5222)
+  [PASS] 5UE/admm: worst >= avg  (worst=22.2623, avg=13.5662)
+  [PASS] 5UE/greedy: worst >= avg  (worst=0.5222, avg=0.5222)
+  [PASS] 5UE/random: worst >= avg  (worst=22.2623, avg=9.2182)
+  [PASS] 5UE/sa: worst >= avg  (worst=22.2623, avg=9.2182)
+  [PASS] 5UE/admm: worst >= avg  (worst=22.2623, avg=13.5662)
+  [PASS] 5UE/greedy: worst >= avg  (worst=0.5222, avg=0.5222)
+  [PASS] 5UE/random: worst >= avg  (worst=22.2623, avg=13.5662)
+  [PASS] 8UE/sa: worst >= avg  (worst=22.2623, avg=8.6747)
+  [PASS] 8UE/admm: worst >= avg  (worst=22.2623, avg=8.6747)
+  [PASS] 8UE/greedy: worst >= avg  (worst=22.2623, avg=5.9572)
+  [PASS] 8UE/random: worst >= avg  (worst=22.2623, avg=16.8272)
+  [PASS] 8UE/sa: worst >= avg  (worst=22.2623, avg=8.6747)
+  [PASS] 8UE/admm: worst >= avg  (worst=22.2623, avg=14.1097)
+  [PASS] 8UE/greedy: worst >= avg  (worst=22.2623, avg=5.9572)
+  [PASS] 8UE/random: worst >= avg  (worst=22.2623, avg=14.1097)
+
+--- Test D: Figure Generation ---
+  Generated 11 figures:
+    fig02_worst_aoii.png: 60.4 KB
+  [PASS] Figure fig02_worst_aoii.png exists
+    fig03_avg_aoii.png: 53.1 KB
+  [PASS] Figure fig03_avg_aoii.png exists
+    fig04_sum_rate.png: 55.7 KB
+  [PASS] Figure fig04_sum_rate.png exists
+    fig05_timing.png: 44.4 KB
+  [PASS] Figure fig05_timing.png exists
+    fig06_delivery_ratio.png: 61.3 KB
+  [PASS] Figure fig06_delivery_ratio.png exists
+    fig07_fresh_ratio.png: 64.5 KB
+  [PASS] Figure fig07_fresh_ratio.png exists
+    fig08_latency.png: 55.6 KB
+  [PASS] Figure fig08_latency.png exists
+    fig09_admm_convergence.png: 43.6 KB
+  [PASS] Figure fig09_admm_convergence.png exists
+    fig10_solver_bars.png: 28.9 KB
+  [PASS] Figure fig10_solver_bars.png exists
+    fig11_per_ue_aoii.png: 28.5 KB
+  [PASS] Figure fig11_per_ue_aoii.png exists
+    fig12_summary_heatmap.png: 51.8 KB
+  [PASS] Figure fig12_summary_heatmap.png exists
+  [PASS] All 11 figures created
+
+--- Test E: Solver Ordering ---
+
+  5 UEs (avg worst-case AoII):
+    Random=22.2623, Greedy=0.5222, SA=11.3922, ADMM=22.2623
+  [PASS] 5UE: SA worst_aoii <= random * 1.5  (sa=11.3922, random=22.2623)
+  [PASS] 5UE: ADMM worst_aoii <= random * 1.5  (admm=22.2623, random=22.2623)
+
+  8 UEs (avg worst-case AoII):
+    Random=22.2623, Greedy=22.2623, SA=22.2623, ADMM=22.2623
+  [PASS] 8UE: SA worst_aoii <= random * 1.5  (sa=22.2623, random=22.2623)
+  [PASS] 8UE: ADMM worst_aoii <= random * 1.5  (admm=22.2623, random=22.2623)
+
+============================================================
+STEP 7 RESULT: ALL TESTS PASSED
+============================================================
