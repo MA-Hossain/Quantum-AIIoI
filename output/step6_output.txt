@@ -1,0 +1,67 @@
+============================================================
+STEP 6: ADMM DECOMPOSITION
+============================================================
+
+--- Test A: Domain Partition ---
+  2-UE/2-node: 2 node domains + 1 global
+  Domain sizes: [4, 4], global: 11
+  Total vars: 19
+  [PASS] Partition covers all variables  (covered=19, total=19)
+  [PASS] Domains are disjoint  (sum of sizes=19, total=19)
+
+  5-UE/4-node: 4 node domains + 1 global
+  Domain sizes: [7, 7, 7, 7], global: 23
+  [PASS] 5-UE partition covers all
+
+--- Test B: ADMM on 2-UE / 2-Node ---
+  Exact energy: -93.7000
+  Exact assoc:  {0: 0, 1: 1}
+  ADMM energy:      -93.7000
+  ADMM association: {0: 0, 1: 1}
+  ADMM eta:         0.30
+  ADMM feasible:    single_assoc=True, capacity_ok=True
+  Iterations:       1
+  Converged:        True
+  Final residual:   0.000000
+  Time:             0.011s
+  [PASS] ADMM 2-UE: solution is feasible
+  [PASS] ADMM 2-UE: energy close to exact  (admm=-93.7000, exact=-93.7000)
+
+--- Test C: ADMM on 5-UE / 4-Node ---
+  SA reference energy: -266.2000
+  SA association:      {0: 1, 1: 1, 2: 0, 3: 3, 4: 0}
+  ADMM energy:      -265.9000
+  ADMM association: {0: 1, 1: 3, 2: 2, 3: 1, 4: 0}
+  ADMM eta:         2.10
+  ADMM feasible:    single_assoc=True, capacity_ok=True
+  Iterations:       14
+  Converged:        True
+  Domains:          5, sizes=[7, 7, 7, 7, 23]
+  Time:             0.343s
+  [PASS] ADMM 5-UE: solution is feasible
+  [PASS] ADMM 5-UE: energy in reasonable range  (admm=-265.9000, sa=-266.2000)
+
+--- Test D: Convergence ---
+  2-UE residuals (first 5): ['0.0000']
+  2-UE residuals (last 3):  ['0.0000']
+  5-UE residuals (first 5): ['1.4142', '1.0000', '1.0000', '1.0000', '1.0000']
+  5-UE residuals (last 3):  ['1.0000', '1.0000', '0.0000']
+  [PASS] 2-UE: final residual < initial  (first=0.0000, last=0.0000)
+  [PASS] 5-UE: residual non-increasing trend  (first=1.4142, last=0.0000)
+
+--- Test E: Global eta Broadcast ---
+  2-UE eta history: ['0.30'] ...
+  2-UE final eta: 0.30
+  5-UE eta history: ['2.10', '2.10', '2.10', '2.10', '2.10'] ...
+  5-UE final eta: 2.10
+  [PASS] 2-UE: eta is finite
+  [PASS] 5-UE: eta is finite
+  [PASS] 2-UE: eta >= 0
+  [PASS] 5-UE: eta >= 0
+  5-UE: max continuous AoII in solution = 2.8838
+  5-UE: broadcast eta (discrete)       = 2.10
+  [PASS] 5-UE: eta covers worst-case AoII (roughly)  (eta is discrete approximation)
+
+============================================================
+STEP 6 RESULT: ALL TESTS PASSED
+============================================================
