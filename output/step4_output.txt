@@ -1,0 +1,72 @@
+============================================================
+STEP 4: CLASSICAL SOLVERS
+============================================================
+  D-Wave neal available: True
+
+--- Test A: Exact Solver (2-UE / 2-Node) ---
+  Energy:      -93.7000
+  Association: {0: 0, 1: 1}
+  eta:         0.30
+  Feasible:    single_assoc=True, capacity_ok=True
+  Evaluated:   524288 solutions
+  Time:        1.979s
+  [PASS] Exact: optimal is feasible
+  [PASS] Exact: UE0 -> Node0  (got {0: 0, 1: 1})
+  [PASS] Exact: UE1 -> Node1  (got {0: 0, 1: 1})
+  [PASS] Exact: energy matches Step 3  (got -93.7000, expected -93.7)
+
+--- Test B: SA Neal (2-UE / 2-Node) ---
+  Energy:      -93.7000
+  Association: {0: 0, 1: 1}
+  eta:         0.30
+  Feasible:    single_assoc=True, capacity_ok=True
+  Backend:     neal
+  Time:        0.080s
+  [PASS] SA neal: finds optimal energy  (SA=-93.7000 vs exact=-93.7000)
+  [PASS] SA neal: optimal is feasible
+  [PASS] SA neal: correct association  (got {0: 0, 1: 1})
+
+--- Test C: SA NumPy Fallback (2-UE / 2-Node) ---
+  Energy:      -93.7000
+  Association: {0: 0, 1: 1}
+  eta:         0.30
+  Feasible:    single_assoc=True, capacity_ok=True
+  Backend:     numpy
+  Time:        20.354s
+  [PASS] SA numpy: finds optimal energy  (SA=-93.7000 vs exact=-93.7000)
+  [PASS] SA numpy: optimal is feasible
+  [PASS] SA numpy: correct association  (got {0: 0, 1: 1})
+
+--- Test D: SA on 5-UE / 4-Node Toy Instance ---
+  Reference good-solution energy: -266.5000
+
+  Neal SA:
+    Energy:      -266.5000
+    Association: {0: 0, 1: 0, 2: 1, 3: 3, 4: 1}
+    eta:         1.50
+    Feasible:    single_assoc=True, capacity_ok=True
+    Time:        0.983s
+  [PASS] SA neal 5-UE: solution is feasible
+  [PASS] SA neal 5-UE: energy <= reference  (SA=-266.5000 vs ref=-266.5000)
+
+  NumPy SA:
+    Energy:      -266.5000
+    Association: {0: 0, 1: 0, 2: 2, 3: 3, 4: 0}
+    eta:         1.50
+    Feasible:    single_assoc=True, capacity_ok=True
+    Time:        305.298s
+  [PASS] SA numpy 5-UE: solution is feasible
+  [PASS] SA numpy 5-UE: energy <= reference  (SA=-266.5000 vs ref=-266.5000)
+
+--- Test E: Solver Consistency ---
+  Exact energy:     -93.7000
+  SA (neal) energy: -93.7000
+  SA (numpy) energy: -93.7000
+  [PASS] Neal matches exact
+  [PASS] NumPy matches exact
+  5-UE neal  approx ratio (vs ref): 1.0000
+  5-UE numpy approx ratio (vs ref): 1.0000
+
+============================================================
+STEP 4 RESULT: ALL TESTS PASSED
+============================================================
