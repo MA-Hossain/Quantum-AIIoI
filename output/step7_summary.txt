@@ -1,0 +1,39 @@
+======================================================================
+STEP 7 EXPERIMENT RESULTS (Revised per reviewer)
+======================================================================
+
+Solver lineup:
+  - random:         Random association (capacity-aware)
+  - greedy:         Greedy best-rate (ignores AoII)
+  - greedy_aoii:    Greedy lowest AoII (bottleneck-first)
+  - greedy_aoii_ls: Greedy AoII + local search refinement
+  - sa:             SA on actual QUBO (neal, warm-started from greedy)
+  - admm:           ADMM on QUBO (warm-started + LS post-processing)
+
+Average worst-case AoII (lower is better):
+ UEs |         random |         greedy |    greedy_aoii | greedy_aoii_ls |             sa |           admm
+--------------------------------------------------------------------------------------------------------------
+   5 |   14.61± 2.89 |   14.85± 1.59 |   11.51± 2.72 |   10.32± 1.50 |   10.55± 1.39 |   10.32± 1.50
+   8 |   17.24± 1.59 |   15.33± 2.44 |   12.94± 2.32 |   11.27± 0.89 |   11.03± 1.21 |   11.51± 1.31
+  10 |   17.00± 2.22 |   16.52± 1.39 |   11.99± 2.68 |    9.13± 0.75 |   10.08± 1.75 |    9.13± 0.75
+  15 |   17.48± 1.69 |   16.28± 2.62 |   11.74± 1.39 |    9.84± 0.58 |   12.94± 1.58 |    9.84± 0.58
+  20 |   17.24± 1.39 |   16.52± 1.91 |   12.22± 1.22 |   11.74± 0.89 |   12.70± 1.69 |   11.74± 0.89
+
+Average timing (seconds):
+ UEs |         random |         greedy |    greedy_aoii | greedy_aoii_ls |             sa |           admm
+--------------------------------------------------------------------------------------------------------------
+   5 |         0.0005 |         0.0001 |         0.0000 |         0.0000 |         0.2605 |         0.9766
+   8 |         0.0002 |         0.0000 |         0.0001 |         0.0001 |         0.6972 |         2.4335
+  10 |         0.0002 |         0.0000 |         0.0001 |         0.0001 |         0.8673 |         6.3478
+  15 |         0.0002 |         0.0001 |         0.0001 |         0.0001 |         0.6052 |         4.9965
+  20 |         0.0003 |         0.0001 |         0.0001 |         0.0001 |         1.8592 |         7.2439
+
+ADMM improvement over greedy-AoII (%):
+     5 UEs: +8.2% ± 10.2%
+     8 UEs: +9.8% ± 9.1%
+    10 UEs: +20.4% ± 16.9%
+    15 UEs: +15.2% ± 10.5%
+    20 UEs: +3.4% ± 6.9%
+
+ADMM vs Greedy-AoII+LS (same instance):
+  ADMM wins: 0, LS wins: 1, Ties: 24 (out of 25)

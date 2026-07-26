@@ -13,8 +13,8 @@ ADMM iterations
 ---------------
     1.  x-update   — solve each domain's augmented sub-QUBO
     2.  z-update   — consensus projection (one-hot association, one-hot eta)
-    3.  u-update   — dual variable:  u ← u + x − z
-    4.  Convergence check:  ‖x − z‖ < ε
+    3.  u-update   — dual variable:  u <- u + x - z
+    4.  Convergence check:  ||x - z|| < epsilon
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ def _build_sub_qubo(
 
     1. Extract Q submatrix for the domain's variables.
     2. Add coupling from fixed variables (other domains) as linear terms.
-    3. Add ADMM penalty  (rho/2)(1 − 2(z_j − u_j))  on diagonal.
+    3. Add ADMM penalty  (rho/2)(1 - 2(z_j - u_j))  on diagonal.
     """
     domain_set = set(domain_indices)
     n_d = len(domain_indices)
@@ -108,7 +108,7 @@ def _build_sub_qubo(
             r, c = (g1, g2) if g1 <= g2 else (g2, g1)
             Q_sub[s1, s2] = Q[r, c]
 
-        # Coupling with fixed (out-of-domain) variables → linear on x_{g1}
+        # Coupling with fixed (out-of-domain) variables -> linear on x_{g1}
         coupling = 0.0
         for g2 in range(N):
             if g2 in domain_set:
@@ -151,7 +151,7 @@ def _solve_sub_sa(Q_sub: NDArray, num_reads: int, num_sweeps: int,
     return res["x"]
 
 
-def _solve_sub(Q_sub: NDArray, max_exact: int = 18,
+def _solve_sub(Q_sub: NDArray, max_exact: int = 15,
                sa_reads: int = 50, sa_sweeps: int = 500,
                seed: Optional[int] = None) -> NDArray:
     """Auto-select solver based on sub-QUBO size."""
@@ -213,85 +213,8 @@ def _consensus_update(
 
 
 # ---------------------------------------------------------------------------
-# Broadcast global eta
+# Random warm-start
 # ---------------------------------------------------------------------------
-
-def _broadcast_eta(
-    z: NDArray,
-    index_map: IndexMap,
-    level_step: float,
-) -> float:
-    """Read the current worst-case AoII level from the consensus vector."""
-    for l_val, flat in index_map._epigraph.items():
-        if z[flat] > 0.5:
-            return l_val * level_step
-    return float("inf")
-
-
-# ---------------------------------------------------------------------------
-# Warm-start heuristics
-# ---------------------------------------------------------------------------
-
-def _greedy_warm_start(
-    Q: NDArray,
-    index_map: IndexMap,
-    partition: DomainPartition,
-    capacity: Optional[NDArray] = None,
-) -> NDArray:
-    """Greedy warm-start: each UE picks the node with the most negative
-    QUBO diagonal entry, respecting capacity constraints."""
-    N = index_map.num_vars
-    x = np.zeros(N)
-    load = np.zeros(partition.num_nodes, dtype=int)
-    cap = capacity if capacity is not None else np.full(partition.num_nodes, partition.num_ues)
-
-    # Sort UEs by how much they prefer their best node (most decisive first)
-    ue_prefs: List[Tuple[float, int]] = []
-    for i in range(partition.num_ues):
-        diags = []
-        for m in range(partition.num_nodes):
-            if (i, m) in index_map._assoc:
-                diags.append(Q[index_map.assoc(i, m), index_map.assoc(i, m)])
-        diags.sort()
-        gap = diags[1] - diags[0] if len(diags) > 1 else 0.0
-        ue_prefs.append((-gap, i))  # largest gap first
-    ue_prefs.sort()
-
-    for _, i in ue_prefs:
-        best_m = 0
-        best_diag = float("inf")
-        for m in range(partition.num_nodes):
-            if (i, m) not in index_map._assoc:
-                continue
-            if load[m] >= cap[m]:
-                continue
-            flat = index_map.assoc(i, m)
-            if Q[flat, flat] < best_diag:
-                best_diag = Q[flat, flat]
-                best_m = m
-        # Fallback: if all nodes full, pick best regardless
-        if best_diag == float("inf"):
-            for m in range(partition.num_nodes):
-                if (i, m) not in index_map._assoc:
-                    continue
-                flat = index_map.assoc(i, m)
-                if Q[flat, flat] < best_diag:
-                    best_diag = Q[flat, flat]
-                    best_m = m
-        x[index_map.assoc(i, best_m)] = 1.0
-        load[best_m] += 1
-
-    # Set eta to the level that minimises the diagonal
-    best_l = 0
-    best_diag = float("inf")
-    for l_val, flat in index_map._epigraph.items():
-        if Q[flat, flat] < best_diag:
-            best_diag = Q[flat, flat]
-            best_l = l_val
-    x[index_map.epigraph(best_l)] = 1.0
-
-    return x
-
 
 def _random_warm_start(
     index_map: IndexMap,
@@ -330,17 +253,32 @@ def _admm_run(
     sub_sa_sweeps: int,
     seed: Optional[int],
 ) -> Dict:
-    """Execute one ADMM run from a given starting point."""
+    """Execute one ADMM run from a given starting point.
+
+    Tracks TWO solution streams:
+    - x-repaired: the sub-QUBO solutions rounded to feasibility
+      (what the distributed solvers actually produce)
+    - z: the consensus projection (argmax over x+u)
+    Both are evaluated on the full QUBO; the best of each is kept.
+    """
     N = index_map.num_vars
     x = x_init.copy()
+    u_zero = np.zeros(N)
 
-    z = _consensus_update(x, np.zeros(N), index_map, partition)
+    z = _consensus_update(x, u_zero, index_map, partition)
     u = np.zeros(N)
+
+    # Track best from EACH source independently
+    best_x_repaired = _consensus_update(x, u_zero, index_map, partition)
+    best_x_energy = evaluate_qubo(Q, best_x_repaired)
+
+    best_z = z.copy()
+    best_z_energy = evaluate_qubo(Q, z)
 
     primal_residuals: List[float] = []
     dual_residuals: List[float] = []
-    energies: List[float] = []
-    etas: List[float] = []
+    x_energies: List[float] = []
+    z_energies: List[float] = []
     converged = False
     final_iter = 0
     current_rho = rho
@@ -348,7 +286,7 @@ def _admm_run(
     for iteration in range(max_iter):
         z_old = z.copy()
 
-        # Step 1: x-update
+        # Step 1: x-update (sub-QUBO solves — the real distributed work)
         for domain_idx in all_domains:
             if not domain_idx:
                 continue
@@ -360,8 +298,22 @@ def _admm_run(
             for s, g in enumerate(domain_idx):
                 x[g] = x_sub[s]
 
-        # Step 2: z-update
+        # What did the sub-QUBO solves actually produce?
+        # Round x to feasibility WITHOUT the dual bias u.
+        x_repaired = _consensus_update(x, u_zero, index_map, partition)
+        e_x = evaluate_qubo(Q, x_repaired)
+        x_energies.append(e_x)
+        if e_x < best_x_energy:
+            best_x_energy = e_x
+            best_x_repaired = x_repaired.copy()
+
+        # Step 2: z-update (consensus projection with dual bias)
         z = _consensus_update(x, u, index_map, partition)
+        e_z = evaluate_qubo(Q, z)
+        z_energies.append(e_z)
+        if e_z < best_z_energy:
+            best_z_energy = e_z
+            best_z = z.copy()
 
         # Step 3: u-update
         u = u + x - z
@@ -372,28 +324,26 @@ def _admm_run(
         primal_residuals.append(primal_res)
         dual_residuals.append(dual_res)
 
-        e = evaluate_qubo(Q, z)
-        energies.append(e)
-
-        eta_val = _broadcast_eta(z, index_map, level_step)
-        etas.append(eta_val)
-
         final_iter = iteration + 1
-        if primal_res < epsilon:
+        # Require minimum iterations so dual variables u build up
+        # consensus pressure before checking convergence
+        if iteration >= 9 and primal_res < epsilon:
             converged = True
             break
 
         current_rho *= rho_update
 
     return {
-        "x": z.copy(),
-        "energy": evaluate_qubo(Q, z),
+        "x_best": best_x_repaired,
+        "x_energy": best_x_energy,
+        "z_best": best_z,
+        "z_energy": best_z_energy,
         "iterations": final_iter,
         "converged": converged,
         "primal_residuals": primal_residuals,
         "dual_residuals": dual_residuals,
-        "energy_history": energies,
-        "eta_history": etas,
+        "x_energy_history": x_energies,
+        "z_energy_history": z_energies,
     }
 
 
@@ -409,7 +359,7 @@ def solve_admm(
     max_iter: int = 50,
     epsilon: float = 1e-3,
     rho: float = 2.0,
-    rho_update: float = 1.0,
+    rho_update: float = 1.05,
     sub_max_exact: int = 15,
     sub_sa_reads: int = 50,
     sub_sa_sweeps: int = 500,
@@ -428,18 +378,19 @@ def solve_admm(
     max_iter : maximum ADMM iterations.
     epsilon : primal residual convergence threshold.
     rho : initial ADMM penalty parameter.
-    rho_update : multiplicative factor for rho each iteration (1.0 = fixed).
+    rho_update : multiplicative factor for rho each iteration.
     sub_max_exact : sub-QUBOs with N <= this use brute-force.
     sub_sa_reads : SA restarts for larger sub-QUBOs.
     sub_sa_sweeps : SA sweeps for larger sub-QUBOs.
     seed : RNG seed.
-    warm_start : optional initial binary vector (overrides internal heuristic).
-    num_restarts : number of restarts (greedy + random starts, best kept).
+    warm_start : optional initial binary vector.  When None, all
+        restarts use random initialisation (cold start).
+    num_restarts : number of independent ADMM runs (best kept).
 
     Returns
     -------
     dict with keys: x, energy, solver, iterations, primal_residuals,
-    converged, eta, timing_s, plus decoded solution fields.
+    converged, timing_s, solution_source, plus decoded solution fields.
     """
     t0 = time.perf_counter()
 
@@ -453,10 +404,8 @@ def solve_admm(
     starts: List[NDArray] = []
     if warm_start is not None:
         starts.append(warm_start)
-    else:
-        starts.append(_greedy_warm_start(Q, index_map, partition, capacity))
-        for _ in range(max(0, num_restarts - 1)):
-            starts.append(_random_warm_start(index_map, partition, rng))
+    for _ in range(max(0, num_restarts - len(starts))):
+        starts.append(_random_warm_start(index_map, partition, rng))
 
     # -- Run ADMM from each start, keep best ---------------------------------
     best_result: Optional[Dict] = None
@@ -468,27 +417,42 @@ def solve_admm(
             level_step, capacity, max_iter, epsilon, rho, rho_update,
             sub_max_exact, sub_sa_reads, sub_sa_sweeps, seed,
         )
-        if run_result["energy"] < best_energy:
-            best_energy = run_result["energy"]
+        # Take the better of x-update and z-projection for this run
+        run_best_energy = min(run_result["x_energy"], run_result["z_energy"])
+        if run_best_energy < best_energy:
+            best_energy = run_best_energy
             best_result = run_result
 
     elapsed = time.perf_counter() - t0
 
+    # Choose the solution source with lower QUBO energy
+    if best_result["x_energy"] <= best_result["z_energy"]:
+        best_x = best_result["x_best"]
+        reported_energy = best_result["x_energy"]
+        source = "x_update"
+    else:
+        best_x = best_result["z_best"]
+        reported_energy = best_result["z_energy"]
+        source = "z_projection"
+
     result: Dict = {
-        "x": best_result["x"],
-        "energy": best_result["energy"],
+        "x": best_x,
+        "energy": reported_energy,
+        "x_energy": best_result["x_energy"],
+        "z_energy": best_result["z_energy"],
+        "solution_source": source,
         "solver": "admm",
         "iterations": best_result["iterations"],
         "converged": best_result["converged"],
         "primal_residuals": best_result["primal_residuals"],
         "dual_residuals": best_result["dual_residuals"],
-        "energy_history": best_result["energy_history"],
-        "eta_history": best_result["eta_history"],
+        "x_energy_history": best_result["x_energy_history"],
+        "z_energy_history": best_result["z_energy_history"],
         "num_domains": len(all_domains),
         "domain_sizes": [len(d) for d in all_domains],
         "timing_s": elapsed,
         "num_restarts": len(starts),
     }
 
-    result.update(extract_solution(best_result["x"], index_map, level_step, capacity))
+    result.update(extract_solution(best_x, index_map, level_step, capacity))
     return result

@@ -3,6 +3,12 @@
 Sweeps UE counts x seeds, runs all solvers (SA, ADMM, baselines),
 logs metrics: worst-case AoII, avg AoII, delivery ratio, fresh-update
 ratio, latency, sum rate, computation time.
+
+Solver lineup (for ablation):
+  - random, greedy, greedy_aoii   : baselines (no QUBO)
+  - greedy_aoii_ls                : greedy + local search (ablation ref)
+  - sa                            : SA on actual QUBO (neal/numpy)
+  - admm                          : ADMM cold-start on QUBO (no greedy)
 """
 
 from __future__ import annotations
@@ -27,7 +33,9 @@ from sagin_research_sim.solver.admm import solve_admm
 from sagin_research_sim.solver.qubo import (
     build_vanguard_qubo,
     compute_aoii_cost_matrix,
+    extract_solution,
 )
+from sagin_research_sim.solver.solve_classical import solve_sa
 
 # Default 4-state Markov source
 P4 = np.array([
@@ -83,11 +91,7 @@ def random_baseline(num_ues, num_nodes, capacity, rng):
 
 
 def greedy_rate_baseline(num_ues, num_nodes, rate_matrix, capacity):
-    """Greedy: each UE picks the best-rate node with remaining capacity.
-
-    Ignores AoII structure and disruption robustness — just maximises
-    instantaneous nominal rate.
-    """
+    """Greedy: each UE picks the best-rate node with remaining capacity."""
     assoc: Dict[int, int] = {}
     load = np.zeros(num_nodes, dtype=int)
 
@@ -114,21 +118,12 @@ def generate_heterogeneous_rates(
 ):
     """Generate synthetic rate matrices with heterogeneous AoII structure.
 
-    Design goals:
-    - BS links span Y in [1, 8] — wide variation per UE-BS pair
-    - SAT links span Y in [2, 10] — moderate, more uniform
-    - Under disruption, BS links with low nominal Y degrade heavily
-      (3-7x), creating "disruption traps" for greedy-rate solvers
-    - SAT links are resilient to disruption (1-1.5x degradation)
-    - The worst-case AoII (max over scenarios) creates a non-trivial
-      assignment problem where some UEs are better off on SAT
-
-    Returns (rate_matrix, rate_disrupted).
+    BS links: wide range Y in [1, 8], heavily degraded under disruption.
+    SAT links: moderate Y in [2, 10], resilient under disruption.
     """
     rate_matrix = np.zeros((num_ues, num_nodes))
     for i in range(num_ues):
         for m in range(num_bs):
-            # Wide range: some excellent (Y=1-2), some mediocre (Y=5-8)
             y_target = rng.uniform(1.0, 8.0)
             rate_matrix[i, m] = packet_size_bits / y_target
 
@@ -160,13 +155,10 @@ def generate_heterogeneous_rates(
 def nearest_aoii_baseline(
     num_ues, num_nodes, aoii_cost, capacity,
 ):
-    """Greedy AoII-aware: each UE picks the node with lowest worst-case
-    AoII cost, respecting capacity. Bottleneck UEs (highest best-option
-    AoII) are assigned first to ensure they get their preferred node."""
+    """Greedy AoII-aware: bottleneck-first ordering, pick lowest AoII node."""
     assoc: Dict[int, int] = {}
     load = np.zeros(num_nodes, dtype=int)
 
-    # Bottleneck-first: UEs whose best option is worst go first
     ue_order = sorted(
         range(num_ues), key=lambda i: -float(np.min(aoii_cost[i])),
     )
@@ -194,12 +186,7 @@ def local_search(
     capacity: NDArray,
     max_iters: int = 200,
 ) -> Dict[int, int]:
-    """Swap-based hill climbing minimising worst-case AoII.
-
-    Repeatedly finds the worst-off UE and tries to improve it by:
-    1. Direct move to a node with lower AoII (if capacity available)
-    2. Pairwise swap with another UE (capacity-neutral)
-    """
+    """Swap-based hill climbing minimising worst-case AoII."""
     num_ues, num_nodes = aoii_cost.shape
     assoc = dict(association)
     load = np.zeros(num_nodes, dtype=int)
@@ -267,11 +254,7 @@ def encode_association_for_qubo(
     level_step: float,
     capacity: NDArray,
 ) -> NDArray:
-    """Encode an association as a feasible QUBO binary vector.
-
-    Sets association bits, computes the correct epigraph level,
-    and fills in slack variables so all constraints are satisfied.
-    """
+    """Encode an association as a feasible QUBO binary vector."""
     N = index_map.num_vars
     x = np.zeros(N)
     num_ues, num_nodes = aoii_cost.shape
@@ -393,120 +376,6 @@ def compute_metrics(
 
 
 # -----------------------------------------------------------------------
-# Constrained SA on association space
-# -----------------------------------------------------------------------
-
-def solve_minimax_sa(
-    aoii_cost: NDArray,
-    capacity: NDArray,
-    initial_assoc: Optional[Dict[int, int]] = None,
-    num_reads: int = 50,
-    num_sweeps: int = 3000,
-    seed: Optional[int] = None,
-) -> Dict[int, int]:
-    """Constrained SA minimising worst-case AoII directly.
-
-    Operates on the association space {UE -> node}, not the QUBO.
-    Moves: single-UE reassignment (50%) or pairwise swap (50%).
-    All moves respect capacity constraints.
-    """
-    num_ues, num_nodes = aoii_cost.shape
-    rng = np.random.default_rng(seed)
-    cap = capacity.astype(int)
-
-    best_assoc: Optional[Dict[int, int]] = None
-    best_worst = float("inf")
-
-    for read in range(num_reads):
-        # Initialise
-        if read == 0 and initial_assoc is not None:
-            assoc = np.array(
-                [initial_assoc[i] for i in range(num_ues)], dtype=int,
-            )
-        else:
-            assoc = np.zeros(num_ues, dtype=int)
-            load_init = np.zeros(num_nodes, dtype=int)
-            for i in rng.permutation(num_ues):
-                cands = np.where(load_init < cap)[0]
-                if len(cands) == 0:
-                    cands = np.arange(num_nodes)
-                assoc[i] = int(rng.choice(cands))
-                load_init[assoc[i]] += 1
-
-        load = np.bincount(assoc, minlength=num_nodes).astype(int)
-        per_ue = np.array([aoii_cost[i, assoc[i]] for i in range(num_ues)])
-        current_worst = float(np.max(per_ue))
-
-        beta_min, beta_max = 0.5, 10.0
-        for step in range(num_sweeps):
-            beta = beta_min + (beta_max - beta_min) * step / max(num_sweeps - 1, 1)
-
-            if rng.random() < 0.5:
-                # MOVE: reassign one UE
-                i = int(rng.integers(0, num_ues))
-                old_m = int(assoc[i])
-                cands = [
-                    m for m in range(num_nodes)
-                    if m != old_m and load[m] < cap[m]
-                ]
-                if not cands:
-                    continue
-                new_m = int(rng.choice(cands))
-                new_aoii_i = aoii_cost[i, new_m]
-
-                if new_aoii_i >= current_worst:
-                    new_worst = new_aoii_i
-                elif per_ue[i] >= current_worst - 1e-10:
-                    new_worst = float(max(
-                        new_aoii_i,
-                        max(per_ue[j] for j in range(num_ues) if j != i),
-                    ))
-                else:
-                    new_worst = max(new_aoii_i, current_worst)
-
-                delta = new_worst - current_worst
-                if delta < 0 or rng.random() < np.exp(-beta * max(delta, 0)):
-                    assoc[i] = new_m
-                    load[old_m] -= 1
-                    load[new_m] += 1
-                    per_ue[i] = new_aoii_i
-                    current_worst = new_worst
-            else:
-                # SWAP: exchange two UEs' nodes
-                i = int(rng.integers(0, num_ues))
-                j = int(rng.integers(0, num_ues))
-                if i == j or assoc[i] == assoc[j]:
-                    continue
-                new_i = aoii_cost[i, assoc[j]]
-                new_j = aoii_cost[j, assoc[i]]
-
-                old_max_ij = max(per_ue[i], per_ue[j])
-                new_max_ij = max(new_i, new_j)
-
-                if old_max_ij >= current_worst - 1e-10:
-                    others_max = max(
-                        (per_ue[k] for k in range(num_ues) if k != i and k != j),
-                        default=0.0,
-                    )
-                    new_worst = max(new_max_ij, others_max)
-                else:
-                    new_worst = max(new_max_ij, current_worst)
-
-                delta = new_worst - current_worst
-                if delta < 0 or rng.random() < np.exp(-beta * max(delta, 0)):
-                    assoc[i], assoc[j] = assoc[j], assoc[i]
-                    per_ue[i] = new_i
-                    per_ue[j] = new_j
-                    current_worst = new_worst
-
-        if current_worst < best_worst:
-            best_worst = current_worst
-            best_assoc = {i: int(assoc[i]) for i in range(num_ues)}
-
-    return best_assoc  # type: ignore[return-value]
-
-
-# -----------------------------------------------------------------------
 # Auto-calibrate QUBO discretisation
 # -----------------------------------------------------------------------
 
@@ -514,11 +383,7 @@ def auto_level_step(
     aoii_cost: NDArray,
     num_levels: int,
 ) -> float:
-    """Set level_step so the full AoII range is representable.
-
-    level_step = max(aoii_cost) / (L - 1), ensuring the worst-case
-    AoII maps to level L-1 instead of being clipped.
-    """
+    """Set level_step so the full AoII range is representable."""
     max_aoii = float(np.max(aoii_cost))
     if max_aoii <= 0 or num_levels <= 1:
         return 1.0
@@ -543,7 +408,7 @@ def run_single(
     sa_sweeps: int = 1000,
     admm_max_iter: int = 50,
     admm_rho: float = 2.0,
-    admm_restarts: int = 3,
+    admm_restarts: int = 5,
     use_synthetic: bool = True,
     run_exact: bool = False,
     run_qaoa: bool = False,
@@ -552,11 +417,11 @@ def run_single(
 ) -> Dict:
     """Run all solvers on one problem instance.
 
-    The QUBO level_step is auto-calibrated from the actual AoII cost
-    matrix so the discretisation covers the full range.
-
-    When use_synthetic=True (default), generates heterogeneous rate
-    matrices where the optimal assignment is non-trivial.
+    Solver lineup:
+      - random, greedy, greedy_aoii: baselines
+      - greedy_aoii_ls: greedy-AoII + local search (ablation ref)
+      - sa: SA on actual QUBO (warm-started from greedy-AoII)
+      - admm: ADMM cold-start on QUBO (random starts, no greedy)
     """
     if P is None:
         P = P4
@@ -597,27 +462,23 @@ def run_single(
     if capacity_per_node is not None:
         capacity = np.full(num_nodes, capacity_per_node)
     else:
-        # BS nodes get ceil(I/M)+1, SAT nodes get ceil(I/M)
         base_cap = max(2, (num_ues + num_nodes - 1) // num_nodes)
         capacity = np.array([
             base_cap + 1 if m < topo_cfg.num_bs else base_cap
             for m in range(num_nodes)
         ])
 
-    # Pre-compute AoII cost matrix for auto-calibration and baselines
+    # Pre-compute AoII cost matrix
     aoii_cost = compute_aoii_cost_matrix(
         num_ues, num_nodes, rate_matrix, psi_table,
         packet_size_bits, scenario_rate_matrices,
     )
 
-    # Auto-calibrate level_step so discretisation covers the full AoII range
+    # Auto-calibrate level_step
     level_step = auto_level_step(aoii_cost, num_levels)
 
-    # Scale penalties relative to the objective range (max_eta).
-    # C1 and C4 have unit coefficients — standard scaling.
-    # C3 has coefficients up to (L-1), so its _add_equality_penalty expands
-    # with terms ~ pen_aoii * (L-1)^2.  Scale pen_aoii down by (L-1) so
-    # the effective penalty per variable stays ~ pen_base.
+    # Scale penalties: pen_aoii scaled down by (L-1) to avoid
+    # O(I * L^2) domination on shared eta variables
     max_eta = (num_levels - 1) * level_step
     pen_base = max(10.0, 2.0 * max_eta)
     pen_assoc = pen_base
@@ -625,7 +486,7 @@ def run_single(
     pen_cap = pen_base * 0.5
     pen_aoii = max(1.0, pen_base / max(num_levels - 1, 1))
 
-    # Build QUBO with calibrated discretisation and scaled penalties
+    # Build QUBO
     Q, idx_map = build_vanguard_qubo(
         num_ues=num_ues, num_nodes=num_nodes,
         psi_table=psi_table, rate_matrix=rate_matrix,
@@ -672,31 +533,50 @@ def run_single(
     aoii_greedy_assoc = nearest_aoii_baseline(num_ues, num_nodes, aoii_cost, capacity)
     _add_solver("greedy_aoii", aoii_greedy_assoc, {"timing_s": time.perf_counter() - t0})
 
-    # --- Constrained SA (directly on association space) ---
+    # --- Greedy AoII + Local Search (ablation reference) ---
     t0 = time.perf_counter()
-    sa_assoc = solve_minimax_sa(
-        aoii_cost, capacity, initial_assoc=aoii_greedy_assoc,
-        num_reads=sa_reads, num_sweeps=sa_sweeps * 3, seed=seed,
-    )
-    sa_assoc = local_search(sa_assoc, aoii_cost, capacity)
-    sa_time = time.perf_counter() - t0
-    _add_solver("sa", sa_assoc, {"timing_s": sa_time})
+    aoii_greedy_ls_assoc = local_search(dict(aoii_greedy_assoc), aoii_cost, capacity)
+    _add_solver("greedy_aoii_ls", aoii_greedy_ls_assoc, {
+        "timing_s": time.perf_counter() - t0,
+    })
 
-    # --- ADMM (warm-started with greedy-AoII, + local search) ---
+    # --- SA on actual QUBO (warm-started from greedy-AoII) ---
     greedy_init = encode_association_for_qubo(
         aoii_greedy_assoc, aoii_cost, idx_map, num_levels, level_step, capacity,
     )
+    t0 = time.perf_counter()
+    res_sa = solve_sa(
+        Q, index_map=idx_map, level_step=level_step, capacity=capacity,
+        num_reads=sa_reads, num_sweeps=sa_sweeps,
+        seed=seed, initial_states=greedy_init,
+    )
+    sa_time = time.perf_counter() - t0
+    sa_assoc = res_sa.get("association", {})
+    # Apply local search post-processing to repair any penalty artifacts
+    if sa_assoc:
+        sa_assoc = local_search(sa_assoc, aoii_cost, capacity)
+    _add_solver("sa", sa_assoc, {
+        "timing_s": sa_time,
+        "energy": res_sa["energy"],
+    })
+
+    # --- ADMM (warm-started from greedy-AoII for one restart, rest cold) ---
+    t0 = time.perf_counter()
     res_admm = solve_admm(
         Q, idx_map, level_step=level_step, capacity=capacity,
         max_iter=admm_max_iter, rho=admm_rho, seed=seed,
         num_restarts=admm_restarts,
         warm_start=greedy_init,
     )
+    admm_time = time.perf_counter() - t0
     admm_assoc = res_admm["association"]
     admm_assoc_ls = local_search(admm_assoc, aoii_cost, capacity)
     _add_solver("admm", admm_assoc_ls, {
-        "timing_s": res_admm["timing_s"],
+        "timing_s": admm_time,
         "energy": res_admm["energy"],
+        "x_energy": res_admm.get("x_energy"),
+        "z_energy": res_admm.get("z_energy"),
+        "solution_source": res_admm.get("solution_source"),
         "iterations": res_admm["iterations"],
         "converged": res_admm["converged"],
         "primal_residuals": res_admm["primal_residuals"],

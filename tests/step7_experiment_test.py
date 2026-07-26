@@ -65,8 +65,8 @@ log(f"  Capacity: {res_single['capacity']}")
 solvers_present = list(res_single["solvers"].keys())
 log(f"  Solvers run: {solvers_present}")
 
-check("All 4 solvers ran",
-      all(s in solvers_present for s in ["random", "greedy", "sa", "admm"]))
+check("All 6 solvers ran",
+      all(s in solvers_present for s in ["random", "greedy", "greedy_aoii", "greedy_aoii_ls", "sa", "admm"]))
 
 for solver_name in solvers_present:
     s = res_single["solvers"][solver_name]
@@ -111,7 +111,7 @@ log(f"  UE counts: {ue_counts_seen}")
 check("Both UE counts present", ue_counts_seen == [5, 8])
 
 for r in sweep_results:
-    for s_name in ["random", "greedy", "sa"]:
+    for s_name in ["random", "greedy", "greedy_aoii", "greedy_aoii_ls", "sa"]:
         check(f"{r['num_ues']}UE/seed{r['seed']}/{s_name}: feasible",
               r["solvers"][s_name]["capacity_ok"],
               f"assoc={r['solvers'][s_name]['association']}")
@@ -126,7 +126,7 @@ for r in sweep_results:
 log("\n--- Test C: Metrics Sanity ---")
 
 for r in sweep_results:
-    for s_name in ["sa", "admm", "greedy", "random"]:
+    for s_name in ["sa", "admm", "greedy", "greedy_aoii", "greedy_aoii_ls", "random"]:
         s = r["solvers"][s_name]
         check(f"{r['num_ues']}UE/{s_name}: worst >= avg",
               s["worst_aoii"] >= s["avg_aoii"] - 1e-9,
