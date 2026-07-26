@@ -56,16 +56,30 @@ def _solve_neal(
     num_reads: int,
     num_sweeps: int,
     seed: Optional[int],
+    initial_states: Optional[NDArray] = None,
 ) -> Tuple[NDArray, float]:
     """Run SimulatedAnnealingSampler from dwave-neal."""
+    import dimod
+
     qubo = _qubo_to_dict(Q)
     sampler = _neal.SimulatedAnnealingSampler()
-    response = sampler.sample_qubo(
-        qubo,
-        num_reads=num_reads,
-        num_sweeps=num_sweeps,
-        seed=seed,
-    )
+
+    kwargs = dict(num_reads=num_reads, num_sweeps=num_sweeps, seed=seed)
+
+    if initial_states is not None:
+        # Convert binary vector(s) to dimod SampleSet for warm-starting
+        if initial_states.ndim == 1:
+            initial_states = initial_states.reshape(1, -1)
+        samples = [
+            {j: int(initial_states[k, j]) for j in range(initial_states.shape[1])}
+            for k in range(initial_states.shape[0])
+        ]
+        init_ss = dimod.SampleSet.from_samples(
+            samples, vartype="BINARY", energy=[0.0] * len(samples),
+        )
+        kwargs["initial_states"] = init_ss
+
+    response = sampler.sample_qubo(qubo, **kwargs)
     best = response.first
     N = Q.shape[0]
     x = np.array([best.sample.get(i, 0) for i in range(N)], dtype=float)
@@ -145,6 +159,7 @@ def solve_sa(
     seed: Optional[int] = None,
     beta_range: Tuple[float, float] = (0.1, 3.0),
     backend: Optional[str] = None,
+    initial_states: Optional[NDArray] = None,
 ) -> Dict:
     """Solve a QUBO via simulated annealing.
 
@@ -176,7 +191,7 @@ def solve_sa(
                 "D-Wave neal is not installed. "
                 "Install with: pip install dwave-neal"
             )
-        x, energy = _solve_neal(Q, num_reads, num_sweeps, seed)
+        x, energy = _solve_neal(Q, num_reads, num_sweeps, seed, initial_states)
     elif backend == "numpy":
         x, energy = _solve_numpy(Q, num_reads, num_sweeps, seed, beta_range)
     else:

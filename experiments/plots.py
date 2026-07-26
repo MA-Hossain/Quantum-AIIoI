@@ -23,13 +23,16 @@ import matplotlib.pyplot as plt
 # -----------------------------------------------------------------------
 
 SOLVER_STYLES = {
-    "sa":      {"color": "#e74c3c", "marker": "s", "label": "SA (neal)"},
-    "admm":    {"color": "#3498db", "marker": "D", "label": "ADMM"},
-    "random":  {"color": "#95a5a6", "marker": "x", "label": "Random"},
-    "greedy":  {"color": "#f39c12", "marker": "^", "label": "Greedy"},
-    "exact":   {"color": "#2ecc71", "marker": "o", "label": "Exact"},
-    "qaoa":    {"color": "#9b59b6", "marker": "P", "label": "QAOA"},
+    "sa":          {"color": "#e74c3c", "marker": "s", "label": "SA"},
+    "admm":        {"color": "#3498db", "marker": "D", "label": "ADMM (SENTINEL)"},
+    "random":      {"color": "#95a5a6", "marker": "x", "label": "Random"},
+    "greedy":      {"color": "#f39c12", "marker": "^", "label": "Greedy-Rate"},
+    "greedy_aoii": {"color": "#e67e22", "marker": "v", "label": "Greedy-AoII"},
+    "exact":       {"color": "#2ecc71", "marker": "o", "label": "Exact"},
+    "qaoa":        {"color": "#9b59b6", "marker": "P", "label": "QAOA"},
 }
+
+DEFAULT_SOLVERS = ["sa", "admm", "greedy", "greedy_aoii", "random"]
 
 
 # -----------------------------------------------------------------------
@@ -58,7 +61,7 @@ def _mean_std(by_ues):
 
 def _line_plot(ax, results, metric, ylabel, title, solvers=None):
     if solvers is None:
-        solvers = ["sa", "admm", "greedy", "random"]
+        solvers = DEFAULT_SOLVERS
     for s in solvers:
         by_ues = _aggregate(results, metric, s)
         if not by_ues:
@@ -173,13 +176,14 @@ def plot_admm_convergence(results, output_dir):
         seen.add(n)
         admm = r["solvers"].get("admm", {})
         residuals = admm.get("primal_residuals", [])
-        if residuals:
+        if residuals and any(r > 0 for r in residuals):
             ax.plot(range(1, len(residuals) + 1), residuals,
                     label=f"{n} UEs", linewidth=1.5)
     ax.set_xlabel("ADMM Iteration")
     ax.set_ylabel("Primal Residual")
     ax.set_title("Fig 9: ADMM Convergence")
-    ax.set_yscale("log")
+    if ax.get_lines():
+        ax.set_yscale("log")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -192,7 +196,7 @@ def plot_admm_convergence(results, output_dir):
 def plot_solver_bars(results, output_dir):
     max_ues = max(r["num_ues"] for r in results)
     subset = [r for r in results if r["num_ues"] == max_ues]
-    solvers = ["random", "greedy", "admm", "sa"]
+    solvers = ["random", "greedy", "greedy_aoii", "admm", "sa"]
 
     fig, ax = plt.subplots(figsize=(7, 5))
     names, means, stds, colors = [], [], [], []
@@ -222,7 +226,7 @@ def plot_per_ue_aoii(results, output_dir):
     max_ues = max(r["num_ues"] for r in results)
     r = next(r for r in results if r["num_ues"] == max_ues)
 
-    solvers = ["random", "greedy", "admm", "sa"]
+    solvers = ["random", "greedy", "greedy_aoii", "admm", "sa"]
     fig, ax = plt.subplots(figsize=(8, 5))
     data, labels, colors_list = [], [], []
     for s in solvers:
@@ -250,7 +254,7 @@ def plot_per_ue_aoii(results, output_dir):
 def plot_summary_heatmap(results, output_dir):
     max_ues = max(r["num_ues"] for r in results)
     subset = [r for r in results if r["num_ues"] == max_ues]
-    solvers = ["random", "greedy", "admm", "sa"]
+    solvers = ["random", "greedy", "greedy_aoii", "admm", "sa"]
     metrics = ["worst_aoii", "avg_aoii", "delivery_ratio", "fresh_ratio"]
     metric_labels = ["Worst AoII", "Avg AoII", "Delivery Ratio", "Fresh Ratio"]
 
