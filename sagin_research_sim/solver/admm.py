@@ -88,39 +88,32 @@ def _build_sub_qubo(
     z: NDArray,
     u: NDArray,
     rho: float,
+    Q_sym: Optional[NDArray] = None,
 ) -> NDArray:
-    """Build augmented sub-QUBO for one domain.
+    """Build augmented sub-QUBO for one domain (vectorized).
 
     1. Extract Q submatrix for the domain's variables.
     2. Add coupling from fixed variables (other domains) as linear terms.
     3. Add ADMM penalty  (rho/2)(1 - 2(z_j - u_j))  on diagonal.
     """
-    domain_set = set(domain_indices)
-    n_d = len(domain_indices)
-    N = Q.shape[0]
+    darr = np.array(domain_indices)
+    n_d = len(darr)
 
-    Q_sub = np.zeros((n_d, n_d))
+    # Extract sub-matrix (domain indices are sorted, so Q[darr][:,darr]
+    # preserves upper-triangular structure)
+    Q_sub = np.triu(Q[np.ix_(darr, darr)]).copy()
 
-    for s1, g1 in enumerate(domain_indices):
-        # Intra-domain quadratic terms (upper-triangular)
-        for s2 in range(s1, n_d):
-            g2 = domain_indices[s2]
-            r, c = (g1, g2) if g1 <= g2 else (g2, g1)
-            Q_sub[s1, s2] = Q[r, c]
+    # Coupling with out-of-domain fixed variables (vectorized)
+    if Q_sym is None:
+        Q_sym = Q + Q.T - np.diag(np.diag(Q))
+    full_coupling = Q_sym[darr, :] @ x_full          # (n_d,)
+    domain_coupling = Q_sym[np.ix_(darr, darr)] @ x_full[darr]  # (n_d,)
+    external_coupling = full_coupling - domain_coupling  # (n_d,)
 
-        # Coupling with fixed (out-of-domain) variables -> linear on x_{g1}
-        coupling = 0.0
-        for g2 in range(N):
-            if g2 in domain_set:
-                continue
-            r, c = (g1, g2) if g1 < g2 else (g2, g1)
-            coupling += Q[r, c] * x_full[g2]
-        Q_sub[s1, s1] += coupling
-
-        # ADMM augmented Lagrangian
-        # (rho/2)||x_j - z_j + u_j||^2 for binary x_j
-        #   = (rho/2)[(1 - 2(z_j - u_j)) x_j + (z_j - u_j)^2]
-        Q_sub[s1, s1] += (rho / 2.0) * (1.0 - 2.0 * (z[g1] - u[g1]))
+    # Add external coupling + ADMM penalty to diagonal
+    admm_diag = (rho / 2.0) * (1.0 - 2.0 * (z[darr] - u[darr]))
+    diag_idx = np.arange(n_d)
+    Q_sub[diag_idx, diag_idx] += external_coupling + admm_diag
 
     return Q_sub
 
@@ -151,12 +144,29 @@ def _solve_sub_sa(Q_sub: NDArray, num_reads: int, num_sweeps: int,
     return res["x"]
 
 
+def _solve_sub_qaoa(Q_sub: NDArray, seed: Optional[int],
+                    qaoa_depth: int = 1, qaoa_shots: int = 1024) -> NDArray:
+    """Solve a sub-QUBO with QAOA (Qiskit Aer)."""
+    from sagin_research_sim.solver.solve_qaoa import solve_qaoa
+    res = solve_qaoa(Q_sub, p=qaoa_depth, shots=qaoa_shots,
+                     maxiter=80, seed=seed)
+    return res["x"]
+
+
 def _solve_sub(Q_sub: NDArray, max_exact: int = 15,
                sa_reads: int = 50, sa_sweeps: int = 500,
-               seed: Optional[int] = None) -> NDArray:
-    """Auto-select solver based on sub-QUBO size."""
+               seed: Optional[int] = None,
+               sub_solver: str = "auto",
+               qaoa_depth: int = 1,
+               qaoa_shots: int = 1024) -> NDArray:
+    """Select solver for sub-QUBO.
+
+    sub_solver: "auto" (exact if small, else SA), "sa", "qaoa", "exact".
+    """
     n = Q_sub.shape[0]
-    if n <= max_exact:
+    if sub_solver == "qaoa" and n <= 20:
+        return _solve_sub_qaoa(Q_sub, seed, qaoa_depth, qaoa_shots)
+    if sub_solver == "exact" or (sub_solver == "auto" and n <= max_exact):
         return _solve_sub_exact(Q_sub)
     return _solve_sub_sa(Q_sub, sa_reads, sa_sweeps, seed)
 
@@ -252,6 +262,9 @@ def _admm_run(
     sub_sa_reads: int,
     sub_sa_sweeps: int,
     seed: Optional[int],
+    sub_solver: str = "auto",
+    qaoa_depth: int = 1,
+    qaoa_shots: int = 1024,
 ) -> Dict:
     """Execute one ADMM run from a given starting point.
 
@@ -264,6 +277,9 @@ def _admm_run(
     N = index_map.num_vars
     x = x_init.copy()
     u_zero = np.zeros(N)
+
+    # Precompute symmetric Q for vectorized coupling (done once)
+    Q_sym = Q + Q.T - np.diag(np.diag(Q))
 
     z = _consensus_update(x, u_zero, index_map, partition)
     u = np.zeros(N)
@@ -290,10 +306,13 @@ def _admm_run(
         for domain_idx in all_domains:
             if not domain_idx:
                 continue
-            Q_sub = _build_sub_qubo(Q, domain_idx, x, z, u, current_rho)
+            Q_sub = _build_sub_qubo(Q, domain_idx, x, z, u, current_rho,
+                                    Q_sym=Q_sym)
             x_sub = _solve_sub(
                 Q_sub, max_exact=sub_max_exact,
                 sa_reads=sub_sa_reads, sa_sweeps=sub_sa_sweeps, seed=seed,
+                sub_solver=sub_solver, qaoa_depth=qaoa_depth,
+                qaoa_shots=qaoa_shots,
             )
             for s, g in enumerate(domain_idx):
                 x[g] = x_sub[s]
@@ -366,6 +385,9 @@ def solve_admm(
     seed: Optional[int] = None,
     warm_start: Optional[NDArray] = None,
     num_restarts: int = 3,
+    sub_solver: str = "auto",
+    qaoa_depth: int = 1,
+    qaoa_shots: int = 1024,
 ) -> Dict:
     """Solve a VANGUARD QUBO via ADMM decomposition.
 
@@ -416,6 +438,8 @@ def solve_admm(
             Q, index_map, partition, all_domains, x_init,
             level_step, capacity, max_iter, epsilon, rho, rho_update,
             sub_max_exact, sub_sa_reads, sub_sa_sweeps, seed,
+            sub_solver=sub_solver, qaoa_depth=qaoa_depth,
+            qaoa_shots=qaoa_shots,
         )
         # Take the better of x-update and z-projection for this run
         run_best_energy = min(run_result["x_energy"], run_result["z_energy"])

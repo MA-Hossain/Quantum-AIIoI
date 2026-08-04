@@ -1,0 +1,12 @@
+# Core dependencies
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+
+# Simulated Annealing (D-Wave)
+dwave-neal>=0.6
+dimod>=0.12
+
+# Quantum (QAOA) — optional, only needed for Experiments 1, 6
+qiskit>=1.0
+qiskit-aer>=0.13
