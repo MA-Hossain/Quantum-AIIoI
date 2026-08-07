@@ -2,6 +2,11 @@
 
 Simulation framework for the SENTINEL paper: robust minimax Age of Incorrect Information (AoII) optimization in Space-Air-Ground Integrated Networks (SAGIN) via QUBO formulation, ADMM decomposition, and QAOA-compatible quantum pipeline.
 
+> **Current status:** see [RESULTS.md](RESULTS.md). ADMM is returning its greedy
+> warm start unchanged on every instance tested, so the QUBO decomposition is
+> contributing nothing measurable and ADMM comparisons are not currently
+> meaningful. Diagnose that before running the full tier.
+
 ## Quick Start
 
 ```bash
@@ -122,19 +127,38 @@ python3 run_all_experiments.py --plots-only
 
 ### Experiment 1: Small-Instance Validation (3-8 UEs)
 
-Validates correctness by comparing all solvers on instances small enough for exact enumeration.
+Validates correctness by comparing every solver against the exact optimum.
 
-- Solvers: Exact, QAOA (p=2), SA, ADMM, Greedy baselines
-- Validates: QUBO matches original problem, QAOA approximation ratio
-- Output: `exp1_small_validation.json`, `exp1_worst_aoii.png`, `exp1_qaoa_ratio.png`
+- Solvers: Exact, SA, ADMM, Greedy baselines
+- Validates: how close each heuristic gets to the true minimax optimum
+- Output: `exp1_small_validation.json`, `exp1_worst_aoii.png`, `exp1_optimality_gap.png`
+
+The exact solver computes the optimum of the **original** problem — minimise
+`max_i aoii_cost[i, a(i)]` subject to node capacity — as a bottleneck assignment
+via threshold search plus bipartite max-flow. That runs in polynomial time, so
+ground truth is available at any scale, not just on enumerable instances.
+
+QAOA is **not** run here. The monolithic QUBO needs
+`N = I*M + L + capacity_slack + I*ceil(log2 L)` variables, which is 42 even at
+3 UEs / 4 nodes / L=10 — beyond simulable qubit counts, and no configuration
+with a meaningful topology and AoII resolution fits under the limit. QAOA is
+evaluated in Experiment 6, where ADMM decomposition yields genuinely small
+sub-QUBOs. Solvers that cannot run are recorded in a `skipped` field in the
+results JSON along with the reason, and never fail silently.
 
 ### Experiment 2: Solver Comparison (10-100 UEs)
 
 Compares solver quality and runtime at moderate scale.
 
-- Solvers: SA (up to 50 UEs), ADMM, Greedy, Greedy+LS, Random
+- Solvers: Exact, SA (up to 50 UEs), ADMM, Greedy, Greedy+LS, Random
 - 3 disruption scenarios, moderate severity
 - Output: `exp2_solver_comparison.json`, `exp2_*.png`
+
+Experiments 2, 4 and 5 compute the exact optimum for every instance — a few
+milliseconds even at 550 UEs — so solver quality is reported as a percentage
+gap to ground truth, not merely relative to other heuristics. Each prints an
+optimality table broken down by the variable it sweeps, and saves an
+`exp*_optimality_gap.png` figure.
 
 ### Experiment 3: Large-Scale Scalability (100-550 UEs)
 
@@ -148,6 +172,7 @@ Demonstrates that the distributed ADMM framework scales to large networks.
 
 Shows that SENTINEL's advantage grows as disruption severity increases.
 
+- Solvers: Exact, SA, ADMM, Greedy+LS, Greedy-Rate, Random
 - Severity levels: mild, moderate, severe, extreme
 - 3 disruption scenarios per level
 - Output: `exp4_disruption_severity.json`, `exp4_*.png`
@@ -156,6 +181,7 @@ Shows that SENTINEL's advantage grows as disruption severity increases.
 
 Shows that minimax over more scenarios improves robustness.
 
+- Solvers: Exact, SA, ADMM, Greedy+LS, Greedy-Rate
 - Scenario counts: S=1, 3, 5
 - Severe disruption
 - Output: `exp5_multi_scenario.json`, `exp5_*.png`
@@ -180,17 +206,20 @@ output/large_scale/
   exp6_qaoa_in_admm.json
   figures/
     exp1_worst_aoii.png         # Solver comparison (small)
-    exp1_qaoa_ratio.png         # QAOA vs exact
+    exp1_optimality_gap.png     # Gap to exact minimax optimum
     exp2_worst_aoii.png         # Solver comparison (medium)
     exp2_avg_aoii.png
     exp2_timing.png
     exp2_delivery.png
+    exp2_optimality_gap.png     # Gap to exact optimum by UE count
     exp3_worst_aoii.png         # Scalability
     exp3_timing.png
     exp3_domain_sizes.png       # ADMM decomposition analysis
     exp4_worst_aoii.png         # Disruption severity
     exp4_improvement.png        # SENTINEL advantage by severity
+    exp4_optimality_gap.png     # Gap to exact optimum by severity
     exp5_scenarios.png          # Multi-scenario robustness
+    exp5_optimality_gap.png     # Gap to exact optimum by scenario count
     exp6_qaoa_admm.png          # QAOA-in-ADMM quality
     exp6_timing.png             # QAOA-in-ADMM runtime
 ```
@@ -207,6 +236,7 @@ python3 tests/step4_classical_test.py # SA solver
 python3 tests/step5_qaoa_test.py      # QAOA depth sweep
 python3 tests/step6_admm_test.py      # ADMM decomposition
 python3 tests/step7_experiment_test.py # Full sweep (5-20 UEs)
+python3 tests/step8_exact_validation_test.py # Exact ground truth + skip reporting
 ```
 
 ## Troubleshooting

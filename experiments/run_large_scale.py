@@ -391,9 +391,12 @@ def run_instance(
     run_sa: bool = True,
     run_admm: bool = True,
     run_exact: bool = False,
+    run_exact_qubo: bool = False,
     run_qaoa: bool = False,
     qaoa_depth: int = 1,
     qaoa_shots: int = 2048,
+    qaoa_max_vars: int = 20,
+    exact_qubo_max_vars: int = 25,
     sa_reads: int = 200,
     sa_sweeps: int = 1000,
     admm_max_iter: int = 50,
@@ -451,7 +454,17 @@ def run_instance(
         "severity": severity,
         "capacity": capacity.tolist(),
         "solvers": {},
+        "skipped": {},
     }
+
+    def _skip(name, reason):
+        """Record a solver that could not run, and say so on stdout.
+
+        Skips used to be silent, which let Experiment 1 report success while
+        producing no validation data at all.
+        """
+        results["skipped"][name] = reason
+        print(f"    [skipped] {name}: {reason}")
 
     def _add(name, assoc, extra=None):
         metrics = _compute_metrics(
@@ -484,7 +497,9 @@ def run_instance(
          {"timing_s": time.perf_counter() - t0})
 
     # --- Build QUBO (needed for SA/ADMM/exact/QAOA) ---
-    need_qubo = run_sa or run_admm or run_exact or run_qaoa
+    # The exact solver works on the original problem, not the QUBO, so it does
+    # not force a QUBO build.
+    need_qubo = run_sa or run_admm or run_exact_qubo or run_qaoa
     Q = idx_map = level_step = None
     if need_qubo:
         Q, idx_map, _, level_step = _build_instance(
@@ -545,33 +560,65 @@ def run_instance(
             "domain_sizes": res_admm["domain_sizes"],
         })
 
-    # --- Exact (small only) ---
-    if run_exact and Q is not None and idx_map.num_vars <= 25:
-        from sagin_research_sim.solver.solve_exact import solve_exact
-        t0 = time.perf_counter()
-        res_exact = solve_exact(
-            Q, index_map=idx_map, level_step=level_step, capacity=capacity,
-        )
-        _add("exact", res_exact["association"], {
-            "timing_s": time.perf_counter() - t0,
-            "energy": res_exact["energy"],
-        })
+    # --- Exact optimum of the ORIGINAL problem -------------------------------
+    # Bottleneck assignment (threshold search + max-flow). Polynomial time, so
+    # this yields true ground truth at any experiment scale — unlike the
+    # QUBO-space brute force below, which is limited to ~25 variables.
+    if run_exact:
+        from sagin_research_sim.solver.solve_exact_assoc import solve_exact_assoc
+        try:
+            res_ea = solve_exact_assoc(aoii_cost, capacity)
+            _add("exact", res_ea["association"], {
+                "timing_s": res_ea["timing_s"],
+                "optimal_threshold": res_ea["optimal_threshold"],
+                "num_thresholds_tested": res_ea["num_thresholds_tested"],
+            })
+        except ValueError as e:
+            _skip("exact", str(e))
+
+    # --- Exact minimum of the QUBO (cross-check, tiny instances only) --------
+    # Confirms the QUBO's global optimum coincides with the original problem's.
+    # N grows as I*M + L + capacity slack + I*ceil(log2 L), so this only fires
+    # on deliberately tiny configurations.
+    if run_exact_qubo and Q is not None:
+        n_vars = idx_map.num_vars
+        if n_vars <= exact_qubo_max_vars:
+            from sagin_research_sim.solver.solve_exact import solve_exact
+            t0 = time.perf_counter()
+            res_exact = solve_exact(
+                Q, index_map=idx_map, level_step=level_step, capacity=capacity,
+                max_vars=exact_qubo_max_vars,
+            )
+            _add("exact_qubo", res_exact["association"], {
+                "timing_s": time.perf_counter() - t0,
+                "energy": res_exact["energy"],
+            })
+        else:
+            _skip("exact_qubo",
+                  f"QUBO has {n_vars} variables, brute force limited to "
+                  f"{exact_qubo_max_vars} (2^{n_vars} enumeration infeasible)")
 
     # --- QAOA (small only) ---
-    if run_qaoa and Q is not None and idx_map.num_vars <= 20:
-        from sagin_research_sim.solver.solve_qaoa import solve_qaoa
-        t0 = time.perf_counter()
-        res_qaoa = solve_qaoa(
-            Q, index_map=idx_map, level_step=level_step, capacity=capacity,
-            p=qaoa_depth, shots=qaoa_shots, maxiter=100, seed=seed,
-        )
-        _add("qaoa", res_qaoa["association"], {
-            "timing_s": time.perf_counter() - t0,
-            "energy": res_qaoa["energy"],
-            "num_qubits": res_qaoa["num_qubits"],
-            "opt_nfev": res_qaoa["opt_nfev"],
-            "depth": res_qaoa["depth"],
-        })
+    if run_qaoa and Q is not None:
+        n_vars = idx_map.num_vars
+        if n_vars <= qaoa_max_vars:
+            from sagin_research_sim.solver.solve_qaoa import solve_qaoa
+            t0 = time.perf_counter()
+            res_qaoa = solve_qaoa(
+                Q, index_map=idx_map, level_step=level_step, capacity=capacity,
+                p=qaoa_depth, shots=qaoa_shots, maxiter=100, seed=seed,
+            )
+            _add("qaoa", res_qaoa["association"], {
+                "timing_s": time.perf_counter() - t0,
+                "energy": res_qaoa["energy"],
+                "num_qubits": res_qaoa["num_qubits"],
+                "opt_nfev": res_qaoa["opt_nfev"],
+                "depth": res_qaoa["depth"],
+            })
+        else:
+            _skip("qaoa",
+                  f"QUBO needs {n_vars} qubits, simulator limit is "
+                  f"{qaoa_max_vars}")
 
     return results
 
@@ -581,7 +628,15 @@ def run_instance(
 # ---------------------------------------------------------------------------
 
 def experiment_1_small_validation(output_dir: str, seeds: List[int] = None):
-    """Small-instance validation: exact + QAOA + SA + ADMM."""
+    """Small-instance validation against the exact optimum.
+
+    QAOA is deliberately NOT run here.  The full monolithic QUBO needs
+    N = I*M + L + capacity_slack + I*ceil(log2 L) variables, which is 42 even
+    for the smallest instance (3 UEs, 4 nodes, L=10).  No configuration with a
+    meaningful topology and AoII resolution fits under a simulable qubit count,
+    so QAOA is validated in Experiment 6 instead, where ADMM decomposition
+    produces genuinely small sub-QUBOs.
+    """
     if seeds is None:
         seeds = list(range(5))
     ue_counts = [3, 5, 8]
@@ -589,6 +644,8 @@ def experiment_1_small_validation(output_dir: str, seeds: List[int] = None):
 
     print("=" * 60)
     print("EXPERIMENT 1: Small-Instance Validation")
+    print("  Solvers: exact (bottleneck assignment) + SA + ADMM + baselines")
+    print("  QAOA: not applicable at full-QUBO scale — see Experiment 6")
     print("=" * 60)
 
     for n_ue in ue_counts:
@@ -598,15 +655,91 @@ def experiment_1_small_validation(output_dir: str, seeds: List[int] = None):
                 num_ues=n_ue, seed=seed,
                 num_scenarios=2, severity="moderate",
                 run_sa=True, run_admm=True,
-                run_exact=True, run_qaoa=True,
-                qaoa_depth=2, qaoa_shots=2048,
+                run_exact=True, run_exact_qubo=True, run_qaoa=False,
                 sa_reads=100, sa_sweeps=500,
                 admm_restarts=3,
+            )
+            res["qaoa_note"] = (
+                "QAOA not run: full QUBO requires "
+                f"{res.get('num_vars', 'N/A')} qubits, beyond simulable scale. "
+                "QAOA is evaluated on ADMM sub-QUBOs in Experiment 6."
             )
             all_results.append(res)
 
     _save_results(all_results, output_dir, "exp1_small_validation.json")
+    _report_optimality_gaps(all_results)
     return all_results
+
+
+GAP_SOLVERS = ["greedy_aoii", "greedy_aoii_ls", "sa", "admm_raw", "admm"]
+
+
+def _gap_stats(results: List[Dict]) -> Dict[str, Dict]:
+    """Per-solver optimality statistics against the exact optimum."""
+    stats = {name: {"optimal": 0, "total": 0, "gaps": []} for name in GAP_SOLVERS}
+    for res in results:
+        solvers = res.get("solvers", {})
+        if "exact" not in solvers:
+            continue
+        opt = solvers["exact"]["worst_aoii"]
+        for name in GAP_SOLVERS:
+            if name not in solvers:
+                continue
+            val = solvers[name]["worst_aoii"]
+            stats[name]["total"] += 1
+            if val <= opt + 1e-9:
+                stats[name]["optimal"] += 1
+            if opt > 0:
+                stats[name]["gaps"].append((val - opt) / opt * 100.0)
+    return stats
+
+
+def _print_gap_table(stats: Dict[str, Dict], indent: str = "    "):
+    print(f"{indent}{'solver':<16}{'optimal':>12}{'mean gap %':>14}{'max gap %':>12}")
+    for name in GAP_SOLVERS:
+        s = stats[name]
+        if not s["total"]:
+            continue
+        mean_gap = float(np.mean(s["gaps"])) if s["gaps"] else 0.0
+        max_gap = float(np.max(s["gaps"])) if s["gaps"] else 0.0
+        print(f"{indent}{name:<16}{s['optimal']:>5}/{s['total']:<6}"
+              f"{mean_gap:>14.2f}{max_gap:>12.2f}")
+
+
+def _report_optimality_gaps(all_results: List[Dict], group_by: Optional[str] = None):
+    """Print how each solver compares against the exact optimum.
+
+    ``group_by`` names an instance field (e.g. "severity", "num_ues") to break
+    the table down by.  Experiments 4 and 5 sweep exactly one variable each, and
+    aggregating across it would hide the effect they are designed to measure.
+    """
+    if not any("exact" in r.get("solvers", {}) for r in all_results):
+        return
+
+    if group_by is None:
+        print("\n  Optimality vs exact ground truth:")
+        _print_gap_table(_gap_stats(all_results))
+        print()
+        return
+
+    groups: Dict = {}
+    for res in all_results:
+        groups.setdefault(res.get(group_by), []).append(res)
+
+    # Severity is ordinal; alphabetical order would read mild < extreme.
+    severity_rank = {"mild": 0, "moderate": 1, "severe": 2, "extreme": 3}
+
+    def _order(k):
+        return (k is None, severity_rank.get(k, 99), k if k is not None else "")
+
+    print(f"\n  Optimality vs exact ground truth, by {group_by}:")
+    for key in sorted(groups.keys(), key=_order):
+        print(f"\n    {group_by} = {key}")
+        _print_gap_table(_gap_stats(groups[key]), indent="      ")
+
+    print("\n  Aggregate:")
+    _print_gap_table(_gap_stats(all_results))
+    print()
 
 
 def experiment_2_solver_comparison(output_dir: str, seeds: List[int] = None):
@@ -618,6 +751,7 @@ def experiment_2_solver_comparison(output_dir: str, seeds: List[int] = None):
 
     print("=" * 60)
     print("EXPERIMENT 2: Solver Comparison (10-100 UEs)")
+    print("  Exact optimum computed for every instance (bottleneck assignment)")
     print("=" * 60)
 
     for n_ue in ue_counts:
@@ -628,12 +762,14 @@ def experiment_2_solver_comparison(output_dir: str, seeds: List[int] = None):
                 num_ues=n_ue, seed=seed,
                 num_scenarios=3, severity="moderate",
                 run_sa=run_sa_flag, run_admm=True,
+                run_exact=True,
                 sa_reads=200, sa_sweeps=1000,
                 admm_restarts=5,
             )
             all_results.append(res)
 
     _save_results(all_results, output_dir, "exp2_solver_comparison.json")
+    _report_optimality_gaps(all_results, group_by="num_ues")
     return all_results
 
 
@@ -673,6 +809,7 @@ def experiment_4_disruption_severity(output_dir: str, seeds: List[int] = None):
 
     print("=" * 60)
     print("EXPERIMENT 4: Disruption Severity Sweep (50 UEs)")
+    print("  Exact optimum computed for every instance (bottleneck assignment)")
     print("=" * 60)
 
     for sev in severities:
@@ -682,12 +819,14 @@ def experiment_4_disruption_severity(output_dir: str, seeds: List[int] = None):
                 num_ues=num_ues, seed=seed,
                 num_scenarios=3, severity=sev,
                 run_sa=True, run_admm=True,
+                run_exact=True,
                 sa_reads=200, sa_sweeps=1000,
                 admm_restarts=5,
             )
             all_results.append(res)
 
     _save_results(all_results, output_dir, "exp4_disruption_severity.json")
+    _report_optimality_gaps(all_results, group_by="severity")
     return all_results
 
 
@@ -701,6 +840,7 @@ def experiment_5_multi_scenario(output_dir: str, seeds: List[int] = None):
 
     print("=" * 60)
     print("EXPERIMENT 5: Multi-Scenario Robustness (50 UEs)")
+    print("  Exact optimum computed for every instance (bottleneck assignment)")
     print("=" * 60)
 
     for n_sc in scenario_counts:
@@ -710,12 +850,14 @@ def experiment_5_multi_scenario(output_dir: str, seeds: List[int] = None):
                 num_ues=num_ues, seed=seed,
                 num_scenarios=n_sc, severity="severe",
                 run_sa=True, run_admm=True,
+                run_exact=True,
                 sa_reads=200, sa_sweeps=1000,
                 admm_restarts=5,
             )
             all_results.append(res)
 
     _save_results(all_results, output_dir, "exp5_multi_scenario.json")
+    _report_optimality_gaps(all_results, group_by="num_scenarios")
     return all_results
 
 

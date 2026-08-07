@@ -1,0 +1,31 @@
+============================================================
+TEST A: bottleneck solver vs brute-force enumeration
+============================================================
+  [PASS] 200 random instances, 0 objective mismatches
+
+============================================================
+TEST B: exact assignments respect capacity
+============================================================
+  [PASS] all 200 assignments cover every UE
+  [PASS] all 200 assignments respect node capacity
+
+============================================================
+TEST C: run_instance emits an 'exact' solver entry
+============================================================
+  [PASS] 'exact' present in solver results
+       exact worst-case AoII = 9.125828
+  [PASS] exact solution is capacity-feasible
+  [PASS] no solver beats the exact optimum (offenders: [])
+
+============================================================
+TEST D: skipped solvers are recorded with a reason
+============================================================
+  [PASS] 'skipped' field present in results
+       3-UE instance QUBO size: N = 42
+  [PASS] oversized QAOA run recorded in 'skipped'
+  [PASS] oversized QAOA produced no phantom result
+       reason: QUBO needs 42 qubits, simulator limit is 20
+
+============================================================
+STEP 8 RESULT: ALL TESTS PASSED
+============================================================

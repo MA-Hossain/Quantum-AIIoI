@@ -92,12 +92,81 @@ def _plot_lines(ax, results, metric, ylabel, title, solvers, x_field="num_ues",
 # Experiment-specific figure generators
 # ---------------------------------------------------------------------------
 
+GAP_SOLVERS = ["greedy_aoii", "greedy_aoii_ls", "sa", "admm_raw", "admm"]
+
+# Categorical sweep values that must not be sorted alphabetically.
+CATEGORY_ORDER = {"mild": 0, "moderate": 1, "severe": 2, "extreme": 3}
+
+
+def _plot_optimality_gap(results, output_dir, x_field, x_label, title, fname):
+    """Plot each solver's percentage gap to the exact optimum.
+
+    ``x_field`` names the instance field to sweep along; it may be numeric
+    (num_ues, num_scenarios) or categorical (severity).  Returns the saved path,
+    or None when no instance carries an exact optimum.
+    """
+    by_solver: Dict[str, Dict] = {s: {} for s in GAP_SOLVERS}
+    have_exact = False
+
+    for r in results:
+        exact = r["solvers"].get("exact", {}).get("worst_aoii")
+        if exact is None or exact <= 0:
+            continue
+        have_exact = True
+        key = r.get(x_field)
+        for s in GAP_SOLVERS:
+            val = r["solvers"].get(s, {}).get("worst_aoii")
+            if val is not None:
+                by_solver[s].setdefault(key, []).append((val - exact) / exact * 100.0)
+
+    if not have_exact:
+        print(f"    [no figure] {fname}: no exact optimum in results")
+        return None
+
+    all_keys = {k for d in by_solver.values() for k in d}
+    numeric = all(isinstance(k, (int, float)) for k in all_keys)
+    if numeric:
+        keys = sorted(all_keys)
+        xs = keys
+    else:
+        # Severity is ordinal, not alphabetical — sorting by name would put
+        # "extreme" first and invert the trend the figure is meant to show.
+        keys = sorted(all_keys, key=lambda k: (CATEGORY_ORDER.get(k, 99), str(k)))
+        xs = list(range(len(keys)))
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for s in GAP_SOLVERS:
+        data = by_solver[s]
+        if not data:
+            continue
+        pts = [(x, np.mean(data[k])) for x, k in zip(xs, keys) if k in data]
+        if not pts:
+            continue
+        ax.plot([p[0] for p in pts], [p[1] for p in pts], marker="o", label=s)
+
+    ax.axhline(0.0, color="green", linestyle="--", label="exact optimum")
+    if not numeric:
+        ax.set_xticks(xs)
+        ax.set_xticklabels([str(k) for k in keys])
+    ax.set_ylabel("Optimality gap vs exact (%)")
+    ax.set_xlabel(x_label)
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+
+    p = os.path.join(output_dir, fname)
+    fig.savefig(p, dpi=150)
+    plt.close(fig)
+    return p
+
+
 def plot_exp1(results, output_dir):
     """Exp 1: Small-instance validation figures."""
     os.makedirs(output_dir, exist_ok=True)
     paths = []
 
-    solvers = ["exact", "qaoa", "sa", "admm", "greedy_aoii_ls", "greedy_aoii"]
+    solvers = ["exact", "sa", "admm", "admm_raw", "greedy_aoii_ls", "greedy_aoii"]
 
     # Fig: Worst-case AoII comparison
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -107,16 +176,28 @@ def plot_exp1(results, output_dir):
     p = os.path.join(output_dir, "exp1_worst_aoii.png")
     fig.savefig(p, dpi=150); plt.close(fig); paths.append(p)
 
-    # Fig: QAOA approximation ratio
-    fig, ax = plt.subplots(figsize=(8, 5))
+    # Fig: optimality gap vs the exact ground truth
+    p = _plot_optimality_gap(
+        results, output_dir, "num_ues", "Number of UEs",
+        "Exp 1: Solver Gap to Exact Minimax Optimum",
+        "exp1_optimality_gap.png",
+    )
+    if p:
+        paths.append(p)
+
+    # Fig: QAOA approximation ratio — only when QAOA actually produced data.
+    # Previously this was saved unconditionally and emitted a blank chart
+    # whenever QAOA was skipped, which hid the fact that it never ran.
     by_ue: Dict[int, List[float]] = {}
     for r in results:
         n = r["num_ues"]
-        exact_e = r["solvers"].get("exact", {}).get("energy")
+        exact_e = r["solvers"].get("exact_qubo", {}).get("energy")
         qaoa_e = r["solvers"].get("qaoa", {}).get("energy")
         if exact_e is not None and qaoa_e is not None and exact_e != 0:
             by_ue.setdefault(n, []).append(qaoa_e / exact_e)
+
     if by_ue:
+        fig, ax = plt.subplots(figsize=(8, 5))
         ues = sorted(by_ue.keys())
         means = [np.mean(by_ue[n]) for n in ues]
         stds = [np.std(by_ue[n]) for n in ues]
@@ -127,10 +208,15 @@ def plot_exp1(results, output_dir):
         ax.set_xlabel("Number of UEs")
         ax.set_title("Exp 1: QAOA Approximation Ratio")
         ax.legend()
-    ax.grid(True, axis="y", alpha=0.3)
-    fig.tight_layout()
-    p = os.path.join(output_dir, "exp1_qaoa_ratio.png")
-    fig.savefig(p, dpi=150); plt.close(fig); paths.append(p)
+        ax.grid(True, axis="y", alpha=0.3)
+        fig.tight_layout()
+        p = os.path.join(output_dir, "exp1_qaoa_ratio.png")
+        fig.savefig(p, dpi=150); plt.close(fig); paths.append(p)
+    else:
+        skipped = [r.get("skipped", {}).get("qaoa") for r in results]
+        skipped = [s for s in skipped if s]
+        reason = skipped[0] if skipped else "QAOA not run for these instances"
+        print(f"    [no figure] exp1_qaoa_ratio: {reason}")
 
     return paths
 
@@ -139,7 +225,7 @@ def plot_exp2(results, output_dir):
     """Exp 2: Medium-scale solver comparison figures."""
     os.makedirs(output_dir, exist_ok=True)
     paths = []
-    solvers = ["sa", "admm", "admm_raw", "greedy_aoii_ls", "greedy_rate", "greedy_aoii", "random"]
+    solvers = ["exact", "sa", "admm", "admm_raw", "greedy_aoii_ls", "greedy_rate", "greedy_aoii", "random"]
 
     for metric, ylabel, title, fname in [
         ("worst_aoii", "Worst-case AoII", "Worst-case AoII vs UEs", "exp2_worst_aoii.png"),
@@ -154,6 +240,14 @@ def plot_exp2(results, output_dir):
         fig.tight_layout()
         p = os.path.join(output_dir, fname)
         fig.savefig(p, dpi=150); plt.close(fig); paths.append(p)
+
+    p = _plot_optimality_gap(
+        results, output_dir, "num_ues", "Number of UEs",
+        "Exp 2: Solver Gap to Exact Minimax Optimum",
+        "exp2_optimality_gap.png",
+    )
+    if p:
+        paths.append(p)
 
     return paths
 
@@ -212,7 +306,7 @@ def plot_exp4(results, output_dir):
     """Exp 4: Disruption severity sweep figures."""
     os.makedirs(output_dir, exist_ok=True)
     paths = []
-    solvers = ["sa", "admm", "greedy_aoii_ls", "greedy_rate", "random"]
+    solvers = ["exact", "sa", "admm", "greedy_aoii_ls", "greedy_rate", "random"]
 
     sev_order = {"mild": 0, "moderate": 1, "severe": 2, "extreme": 3}
 
@@ -276,6 +370,14 @@ def plot_exp4(results, output_dir):
     p = os.path.join(output_dir, "exp4_improvement.png")
     fig.savefig(p, dpi=150); plt.close(fig); paths.append(p)
 
+    p = _plot_optimality_gap(
+        results, output_dir, "severity", "Disruption Severity",
+        "Exp 4: Solver Gap to Exact Optimum by Severity",
+        "exp4_optimality_gap.png",
+    )
+    if p:
+        paths.append(p)
+
     return paths
 
 
@@ -283,7 +385,7 @@ def plot_exp5(results, output_dir):
     """Exp 5: Multi-scenario robustness figures."""
     os.makedirs(output_dir, exist_ok=True)
     paths = []
-    solvers = ["sa", "admm", "greedy_aoii_ls", "greedy_rate"]
+    solvers = ["exact", "sa", "admm", "greedy_aoii_ls", "greedy_rate"]
 
     fig, ax = plt.subplots(figsize=(8, 5))
     for s in solvers:
@@ -312,6 +414,14 @@ def plot_exp5(results, output_dir):
     fig.tight_layout()
     p = os.path.join(output_dir, "exp5_scenarios.png")
     fig.savefig(p, dpi=150); plt.close(fig); paths.append(p)
+
+    p = _plot_optimality_gap(
+        results, output_dir, "num_scenarios", "Number of Disruption Scenarios (S)",
+        "Exp 5: Solver Gap to Exact Optimum vs Scenario Count",
+        "exp5_optimality_gap.png",
+    )
+    if p:
+        paths.append(p)
 
     return paths
 
